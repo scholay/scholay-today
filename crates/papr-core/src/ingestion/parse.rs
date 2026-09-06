@@ -68,17 +68,33 @@ fn pick_site_url(links: &[feed_rs::model::Link]) -> Option<String> {
 /// hrefs. Stored unresolved, such a URL breaks "open in browser", full-text
 /// extraction and sync URL-matching downstream. Joining against `base` turns
 /// it into the absolute URL the rest of the app expects; an already-absolute
-/// href is returned unchanged, and an unparseable pair falls back to the raw
+/// href is returned unchanged, except that the well-known WeChat article host
+/// is upgraded from HTTP to HTTPS. An unparseable pair falls back to the raw
 /// value rather than dropping the link.
 fn resolve_url(href: &str, base: &str) -> String {
-    match Url::parse(href) {
+    let resolved = match Url::parse(href) {
         Ok(_) => href.to_string(),
         Err(_) => Url::parse(base)
             .ok()
             .and_then(|b| b.join(href).ok())
             .map(|u| u.to_string())
             .unwrap_or_else(|| href.to_string()),
+    };
+
+    // Several community WeChat bridges still emit the historical
+    // `http://mp.weixin.qq.com/...` canonical link. The site serves HTTPS and
+    // redirects HTTP, but relying on that redirect makes the native Web view
+    // slower and can trigger transport-policy failures. Limit the rewrite to
+    // the exact publisher host so arbitrary feed URLs remain untouched.
+    if let Ok(mut parsed) = Url::parse(&resolved) {
+        if parsed.scheme() == "http"
+            && parsed.host_str() == Some("mp.weixin.qq.com")
+            && parsed.set_scheme("https").is_ok()
+        {
+            return parsed.to_string();
+        }
     }
+    resolved
 }
 
 /// Infer an audio/video MIME type from a media URL's file extension, for
@@ -396,6 +412,24 @@ mod tests {
         assert_eq!(
             resolve_url("https://other.example.com/post/1", "https://feed.example.com/rss"),
             "https://other.example.com/post/1"
+        );
+    }
+
+    #[test]
+    fn resolve_url_upgrades_wechat_articles_to_https_only() {
+        assert_eq!(
+            resolve_url(
+                "http://mp.weixin.qq.com/s?__biz=abc&mid=1",
+                "https://feeds.example.com/wechat.xml",
+            ),
+            "https://mp.weixin.qq.com/s?__biz=abc&mid=1"
+        );
+        assert_eq!(
+            resolve_url(
+                "http://example.com/s?__biz=abc&mid=1",
+                "https://feeds.example.com/wechat.xml",
+            ),
+            "http://example.com/s?__biz=abc&mid=1"
         );
     }
 

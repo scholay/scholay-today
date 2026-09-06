@@ -10,7 +10,9 @@
 //! [`ingestion`].
 
 pub mod ai;
+pub mod ai_formatted;
 pub mod db;
+pub mod library;
 pub mod error;
 pub mod extraction;
 pub mod ingestion;

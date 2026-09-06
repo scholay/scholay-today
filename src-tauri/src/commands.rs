@@ -6,17 +6,16 @@ use crate::db::{self};
 use crate::error::{AppError, AppResult};
 use crate::extraction;
 use crate::ingestion::discovery::{self, DiscoveryResult};
-use crate::ingestion::newsletter::{self, NewsletterConfig};
 use crate::ingestion::sources::{self, Normalized};
 use crate::ingestion::{fetch, parse};
 use crate::models::*;
-use crate::scheduler;
 use crate::opml;
 use crate::sanitize;
+use crate::scheduler;
 use crate::state::AppState;
 use crate::translate;
 use serde::{Deserialize, Serialize};
-use tauri::{ipc::Channel, AppHandle, Emitter, Manager, State};
+use tauri::{ipc::Channel, AppHandle, Emitter, Manager, State, Webview};
 use url::Url;
 
 // ─────────────────────────── native chrome ───────────────────────────
@@ -31,30 +30,87 @@ pub fn set_native_backing(window: tauri::WebviewWindow, r: u8, g: u8, b: u8) {
     crate::backing::apply(&window, r, g, b);
 }
 
+// ─────────────────────────── optional local connectors ───────────────────────────
+
+/// Fixed local management endpoint for the optional WechRss helper. Papr never
+/// receives its QR session, cookies, account data or credentials: this probe
+/// answers only whether an HTTP service is listening on the expected loopback
+/// address. A generated RSS URL is still subscribed through ordinary `add_feed`.
+const WECHAT_CONNECTOR_ENDPOINT: &str = "http://127.0.0.1:8080/";
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WechatConnectorStatus {
+    reachable: bool,
+    endpoint: &'static str,
+}
+
+fn trusted_main_origin(label: &str, url: &Url) -> bool {
+    label == "main"
+        && ((url.scheme() == "tauri" && url.host_str() == Some("localhost"))
+            || (matches!(url.scheme(), "http" | "https")
+                && url.host_str() == Some("tauri.localhost"))
+            || (cfg!(debug_assertions)
+                && url.scheme() == "http"
+                && matches!(url.host_str(), Some("localhost" | "127.0.0.1"))))
+}
+
+/// A deliberately small, read-only health probe. It bypasses configured
+/// proxies because the destination is a fixed loopback address, does not follow
+/// redirects, and never reads the response body. Any HTTP status proves the
+/// helper is reachable; authentication state remains owned by WechRss itself.
+async fn probe_wechat_connector() -> bool {
+    let Ok(client) = reqwest::Client::builder()
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .connect_timeout(std::time::Duration::from_millis(600))
+        .timeout(std::time::Duration::from_millis(1200))
+        .user_agent("Papr/0.15 WechRss health check")
+        .build()
+    else {
+        return false;
+    };
+    client.get(WECHAT_CONNECTOR_ENDPOINT).send().await.is_ok()
+}
+
+#[tauri::command]
+pub async fn wechat_connector_status(webview: Webview) -> Result<WechatConnectorStatus, String> {
+    let trusted = webview
+        .url()
+        .ok()
+        .as_ref()
+        .is_some_and(|url| trusted_main_origin(webview.label(), url));
+    if !trusted {
+        return Err("Local WechRss status is available only from the scholay tody workspace.".into());
+    }
+    Ok(WechatConnectorStatus {
+        reachable: probe_wechat_connector().await,
+        endpoint: WECHAT_CONNECTOR_ENDPOINT,
+    })
+}
+
 // ─────────────────────────── folders ───────────────────────────
 
 #[tauri::command]
-pub async fn list_folders(state: State<'_, AppState>) -> AppResult<Vec<Folder>> {
+pub async fn list_folders(state: State<'_, AppState>) -> AppResult<serde_json::Value> {
     let conn = state.read().await;
-    db::list_folders(&conn)
+    papr_core::library::folders(&conn)
 }
 
 #[tauri::command]
-pub async fn create_folder(state: State<'_, AppState>, name: String) -> AppResult<i64> {
-    let conn = state.db.lock().await;
-    db::create_folder(&conn, &name)
+pub async fn create_folder(app: AppHandle, name: String) -> AppResult<i64> {
+    let result=crate::library_service::mutate(&app,vec![papr_core::library::Mutation::CreateFolder{name,parent_id:None}],"desktop",false,None,None).await.map_err(AppError::other)?;
+    result["results"][0]["id"].as_i64().ok_or_else(||AppError::other("Could not create folder"))
 }
 
 #[tauri::command]
-pub async fn rename_folder(state: State<'_, AppState>, id: i64, name: String) -> AppResult<()> {
-    let conn = state.db.lock().await;
-    db::rename_folder(&conn, id, &name)
+pub async fn rename_folder(app: AppHandle, id: i64, name: String) -> AppResult<()> {
+    crate::library_service::mutate(&app,vec![papr_core::library::Mutation::RenameFolder{id,name}],"desktop",false,None,None).await.map_err(AppError::other)?;Ok(())
 }
 
 #[tauri::command]
-pub async fn delete_folder(state: State<'_, AppState>, id: i64) -> AppResult<()> {
-    let conn = state.db.lock().await;
-    db::delete_folder(&conn, id)
+pub async fn delete_folder(app: AppHandle, id: i64) -> AppResult<()> {
+    crate::library_service::mutate(&app,vec![papr_core::library::Mutation::DeleteFolder{id}],"desktop",false,None,None).await.map_err(AppError::other)?;Ok(())
 }
 
 // ─────────────────────────── feeds ───────────────────────────
@@ -72,6 +128,7 @@ pub async fn list_feeds(state: State<'_, AppState>) -> AppResult<Vec<Feed>> {
 /// populated, then returns the stored feed.
 #[tauri::command]
 pub async fn add_feed(
+    app: AppHandle,
     state: State<'_, AppState>,
     url: String,
     folder_id: Option<i64>,
@@ -83,7 +140,11 @@ pub async fn add_feed(
     // expansion is a plain HTTP feed URL, so the rest of the pipeline handles
     // it with no further special-casing. Only touch the DB when it's actually
     // an rsshub link, so the common case pays nothing.
-    let url = if url.trim().get(..9).is_some_and(|s| s.eq_ignore_ascii_case("rsshub://")) {
+    let url = if url
+        .trim()
+        .get(..9)
+        .is_some_and(|s| s.eq_ignore_ascii_case("rsshub://"))
+    {
         let instance = {
             let conn = state.db.lock().await;
             db::get_setting(&conn, "rsshub_instance")?
@@ -132,87 +193,9 @@ pub async fn add_feed(
         (candidate, fb)
     };
 
-    // Step 3: parse and classify. A normalization step that already pinned a
-    // source type (YouTube / Reddit / Mastodon) wins over heuristic detection.
-    let parsed = parse::parse_feed(&feed_bytes, &feed_url)?;
-    let source_type = match forced_type {
-        Some(t) => t,
-        None => parse::refine_source_type(
-            parse::detect_source_type(&feed_url),
-            &parsed,
-            &feed_url,
-        ),
-    };
-
-    let title = parsed
-        .title
-        .clone()
-        .filter(|t| !t.is_empty())
-        .unwrap_or_else(|| feed_url.clone());
-    let favicon = parsed.icon.clone().or_else(|| {
-        parsed
-            .site_url
-            .as_deref()
-            .and_then(|s| Url::parse(s).ok())
-            .and_then(|u| u.host_str().map(String::from))
-            .map(|h| format!("https://www.google.com/s2/favicons?domain={h}&sz=64"))
-    });
-
-    // Step 4: persist.
     let conn = state.db.lock().await;
-    if db::find_feed_by_url(&conn, &feed_url)?.is_some() {
-        return Err(AppError::code("alreadySubscribed"));
-    }
-    let feed_id = db::insert_feed(
-        &conn,
-        &feed_url,
-        parsed.site_url.as_deref(),
-        &title,
-        parsed.description.as_deref(),
-        source_type,
-        folder_id,
-    )?;
-    if let Some(fav) = &favicon {
-        db::update_feed_meta(&conn, feed_id, None, None, None, Some(fav))?;
-    }
-    let dedup = db::setting_flag(&conn, "dedup_enabled", false);
-    let rules = db::active_rules(&conn).unwrap_or_default();
-    for article in &parsed.articles {
-        db::upsert_article(&conn, feed_id, article, dedup, &rules)?;
-    }
-    // Record that the feed was just fetched. `add_feed` fetches the document
-    // here in step 1/2, so without this `last_fetched_at` would stay NULL —
-    // the feed would wrongly read as "never refreshed" until the next
-    // scheduler tick, and the tick would also re-fetch it in full a moment
-    // after this add. (The conditional-GET revalidators are not captured —
-    // `fetch::get` does not surface ETag / Last-Modified — so the next poll
-    // does one full GET before it can store them; that is a single missed
-    // optimisation, not incorrect behaviour, and many feeds send no ETag at
-    // all.)
-    let _ = db::touch_feed(&conn, feed_id);
-    let last_fetched_at = db::feed_last_fetched(&conn, feed_id).ok().flatten();
-    // Count actual unread rows rather than tallying insertions: keeps the
-    // returned `unread_count` aligned with the sidebar's `list_feeds` count
-    // regardless of how filter rules pre-set article state.
-    let unread = db::count_feed_unread(&conn, feed_id)?;
-    drop(conn);
-
-    Ok(Feed {
-        id: feed_id,
-        feed_url,
-        site_url: parsed.site_url,
-        title,
-        description: parsed.description,
-        favicon_url: favicon,
-        folder_id,
-        source_type: source_type.as_str().to_string(),
-        last_fetched_at,
-        fetch_error: None,
-        unread_count: unread,
-        refresh_interval_min: None,
-        auto_translate: false,
-        open_mode: None,
-    })
+    let result=papr_core::library::subscribe(&conn, &feed_url, &feed_bytes, forced_type, folder_id, "desktop")?;
+    drop(conn);crate::library_service::changed(&app);Ok(result)
 }
 
 /// Feed discovery (feature F6). Searches the bundled curated directory for
@@ -264,19 +247,17 @@ pub async fn search_feed_directory(
 }
 
 #[tauri::command]
-pub async fn delete_feed(state: State<'_, AppState>, id: i64) -> AppResult<()> {
-    let conn = state.db.lock().await;
-    db::delete_feed(&conn, id)
+pub async fn delete_feed(app: AppHandle, id: i64) -> AppResult<()> {
+    crate::library_service::mutate(&app,vec![papr_core::library::Mutation::ArchiveFeed{id}],"desktop",false,None,None).await.map_err(AppError::other)?;Ok(())
 }
 
 #[tauri::command]
 pub async fn move_feed(
-    state: State<'_, AppState>,
+    app: AppHandle,
     id: i64,
     folder_id: Option<i64>,
 ) -> AppResult<()> {
-    let conn = state.db.lock().await;
-    db::move_feed(&conn, id, folder_id)
+    crate::library_service::mutate(&app,vec![papr_core::library::Mutation::MoveFeed{id,folder_id}],"desktop",false,None,None).await.map_err(AppError::other)?;Ok(())
 }
 
 /// Set a feed's per-feed refresh interval. `None` reverts it to the global
@@ -284,12 +265,11 @@ pub async fn move_feed(
 /// automatic refresh. The change is honoured on the scheduler's next tick.
 #[tauri::command]
 pub async fn set_feed_refresh_interval(
-    state: State<'_, AppState>,
+    app: AppHandle,
     id: i64,
     minutes: Option<i64>,
 ) -> AppResult<()> {
-    let conn = state.db.lock().await;
-    db::set_feed_refresh_interval(&conn, id, minutes)
+    crate::library_service::mutate(&app,vec![papr_core::library::Mutation::SetFeedInterval{id,minutes}],"desktop",false,None,None).await.map_err(AppError::other)?;Ok(())
 }
 
 /// Toggle a feed's auto-translate flag. When on, opening any article from this
@@ -323,10 +303,9 @@ pub async fn set_feed_open_mode(
 }
 
 #[tauri::command]
-pub async fn rename_feed(state: State<'_, AppState>, id: i64, title: String) -> AppResult<()> {
+pub async fn rename_feed(app: AppHandle, id: i64, title: String) -> AppResult<()> {
     // `db::rename_feed` trims and rejects an empty title — the one chokepoint.
-    let conn = state.db.lock().await;
-    db::rename_feed(&conn, id, &title)
+    crate::library_service::mutate(&app,vec![papr_core::library::Mutation::RenameFeed{id,title}],"desktop",false,None,None).await.map_err(AppError::other)?;Ok(())
 }
 
 /// Refresh every feed, streaming progress to the frontend over `on_progress`.
@@ -619,8 +598,7 @@ pub async fn import_opml(app: AppHandle, content: String) -> AppResult<usize> {
     // skipping and leaving the imported feeds empty until the next tick.
     let app2 = app.clone();
     tauri::async_runtime::spawn(async move {
-        let _ =
-            scheduler::refresh_all(&app2, None, true, scheduler::RefreshScope::All).await;
+        let _ = scheduler::refresh_all(&app2, None, true, scheduler::RefreshScope::All).await;
     });
     Ok(count)
 }
@@ -641,11 +619,7 @@ pub async fn get_setting(state: State<'_, AppState>, key: String) -> AppResult<O
 }
 
 #[tauri::command]
-pub async fn set_setting(
-    state: State<'_, AppState>,
-    key: String,
-    value: String,
-) -> AppResult<()> {
+pub async fn set_setting(state: State<'_, AppState>, key: String, value: String) -> AppResult<()> {
     let conn = state.db.lock().await;
     db::set_setting(&conn, &key, &value)
 }
@@ -743,7 +717,12 @@ pub async fn ai_summarize(
     let (title, body, cfg, lang) = {
         let conn = state.read().await;
         let (title, body) = db::article_text(&conn, article_id)?;
-        (title, body, load_ai_config(&conn)?, response_language(&conn))
+        (
+            title,
+            body,
+            load_ai_config(&conn)?,
+            response_language(&conn),
+        )
     };
     // A title-only item (link-aggregator posts, some podcast/video feeds carry
     // no body text) gives the model nothing to summarize. Without this guard it
@@ -829,10 +808,7 @@ pub async fn ai_ask(
 
 /// Stream an AI briefing that synthesizes the most recent articles by theme.
 #[tauri::command]
-pub async fn ai_digest(
-    state: State<'_, AppState>,
-    on_token: Channel<AiEvent>,
-) -> AppResult<()> {
+pub async fn ai_digest(state: State<'_, AppState>, on_token: Channel<AiEvent>) -> AppResult<()> {
     let (cfg, articles, lang) = {
         let conn = state.read().await;
         (
@@ -877,7 +853,6 @@ pub enum TranslateEvent {
     /// The full sanitized translation, sent once on completion.
     Done { html: String },
 }
-
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -969,7 +944,9 @@ pub async fn translate_article_preview(
     // tag" covers it, and a single prompt can never drift between the two paths.
     let system = translate::translate_system_prompt(translate::language_name(&target));
     let source = preview_translation_html(&title, &snippet);
-    let raw = backend.translate_batch(&http, &system, &source, &target).await?;
+    let raw = backend
+        .translate_batch(&http, &system, &source, &target)
+        .await?;
     let clean = sanitize::sanitize(raw.trim(), None);
     let translated_title = text_for_selector(&clean, "h1");
     let translated_snippet = text_for_selector(&clean, "p");
@@ -1058,7 +1035,9 @@ pub async fn ai_translate(
     let system = translate::translate_system_prompt(translate::language_name(&target));
     let mut full = String::new();
     for (i, batch) in batches.iter().enumerate() {
-        let raw = backend.translate_batch(&http, &system, batch, &target).await?;
+        let raw = backend
+            .translate_batch(&http, &system, batch, &target)
+            .await?;
         // Engine output (LLM or machine translation) is untrusted, so each batch
         // passes through the same sanitizer as feed HTML before it reaches the
         // webview or the database. Source URLs are already absolute (sanitized at
@@ -1066,7 +1045,10 @@ pub async fn ai_translate(
         let clean = sanitize::sanitize(raw.trim(), None);
         full.push_str(&clean);
         full.push('\n');
-        let _ = on_event.send(TranslateEvent::Batch { html: clean, done: i + 1 });
+        let _ = on_event.send(TranslateEvent::Batch {
+            html: clean,
+            done: i + 1,
+        });
     }
 
     let final_html = full.trim().to_string();
@@ -1175,8 +1157,15 @@ pub async fn freshrss_connect(
     provider: Option<String>,
 ) -> AppResult<()> {
     let state = app.state::<AppState>();
-    crate::sync::connect(&state.db, &state.http(), &url, &username, &password, provider.as_deref())
-        .await
+    crate::sync::connect(
+        &state.db,
+        &state.http(),
+        &url,
+        &username,
+        &password,
+        provider.as_deref(),
+    )
+    .await
 }
 
 #[tauri::command]
@@ -1254,11 +1243,7 @@ pub async fn rename_tag(state: State<'_, AppState>, id: i64, name: String) -> Ap
 }
 
 #[tauri::command]
-pub async fn set_tag_color(
-    state: State<'_, AppState>,
-    id: i64,
-    color: String,
-) -> AppResult<()> {
+pub async fn set_tag_color(state: State<'_, AppState>, id: i64, color: String) -> AppResult<()> {
     let conn = state.db.lock().await;
     db::set_tag_color(&conn, id, &color)
 }
@@ -1321,7 +1306,16 @@ pub async fn update_rule(
         return Err(AppError::code("emptyRuleQuery"));
     }
     let conn = state.db.lock().await;
-    db::update_rule(&conn, id, name.trim(), enabled, feed_id, &field, query.trim(), &action)
+    db::update_rule(
+        &conn,
+        id,
+        name.trim(),
+        enabled,
+        feed_id,
+        &field,
+        query.trim(),
+        &action,
+    )
 }
 
 #[tauri::command]
@@ -1390,7 +1384,7 @@ pub struct NewsletterSource {
     folder: String,
 }
 
-/// Payload for `add_newsletter_source` — the IMAP mailbox to start polling.
+/// Legacy payload retained for callers; adding email sources is disabled.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NewsletterInput {
@@ -1399,111 +1393,23 @@ pub struct NewsletterInput {
     pub host: String,
     pub port: u16,
     pub username: String,
-    /// IMAP app-password / token. Stored in the local DB only.
+    /// Legacy IMAP credential field; the disabled command never stores it.
     pub password: String,
-    /// Mailbox to poll, e.g. `INBOX` or `Newsletters`.
+    /// Legacy mailbox name, e.g. `INBOX` or `Newsletters`.
     pub folder: String,
 }
 
-/// Add an email-newsletter source. Verifies the IMAP credentials by polling
-/// the mailbox once, ingests whatever it finds, and persists the source so the
-/// background scheduler keeps polling it. Backed by a `feeds` row plus an
-/// entry in `newsletter_sources` (see migration #10).
+/// Retained for older clients in this RSS-only build. Refuse before connecting
+/// or writing to the RSS database.
 #[tauri::command]
 pub async fn add_newsletter_source(
     state: State<'_, AppState>,
     input: NewsletterInput,
 ) -> AppResult<Feed> {
-    let cfg = NewsletterConfig {
-        host: input.host.trim().to_string(),
-        port: input.port,
-        username: input.username.trim().to_string(),
-        password: input.password.clone(),
-        folder: {
-            let f = input.folder.trim();
-            if f.is_empty() { "INBOX".to_string() } else { f.to_string() }
-        },
-    };
-    if cfg.host.is_empty() || cfg.username.is_empty() || cfg.password.is_empty() {
-        return Err(AppError::code("newsletterMissingFields"));
-    }
-    let feed_url = newsletter::synthetic_feed_url(&cfg);
-    let title = input
-        .title
-        .as_deref()
-        .map(str::trim)
-        .filter(|t| !t.is_empty())
-        .map(String::from)
-        .unwrap_or_else(|| cfg.username.clone());
-
-    // Reject a duplicate mailbox before doing the (slow) IMAP round-trip.
-    {
-        let conn = state.read().await;
-        if db::find_feed_by_url(&conn, &feed_url)?.is_some() {
-            return Err(AppError::code("alreadySubscribed"));
-        }
-    }
-
-    // Verify the credentials by actually connecting. The `imap` crate is
-    // blocking, so the connection runs on the blocking pool — and it has no
-    // per-operation timeout, so a server that completes the TCP/TLS handshake
-    // but then stalls mid-command would block this command forever (the Add
-    // dialog spinner never resolves, the blocking worker thread is leaked).
-    // Bound the whole probe with the same wall-clock cap the scheduler's
-    // background poll uses, so a wedged mailbox degrades to a clean error.
-    let probe_cfg = cfg.clone();
-    let messages = match tokio::time::timeout(
-        std::time::Duration::from_secs(scheduler::NEWSLETTER_POLL_TIMEOUT_SECS),
-        tokio::task::spawn_blocking(move || newsletter::fetch_recent(&probe_cfg, 30)),
-    )
-    .await
-    {
-        Ok(joined) => joined
-            .map_err(|e| AppError::other(format!("newsletter poll task: {e}")))??,
-        Err(_) => return Err(AppError::code("newsletterPollTimeout")),
-    };
-
-    // Persist the source, then ingest the messages just fetched.
-    let conn = state.db.lock().await;
-    let feed_id = db::insert_newsletter_source(&conn, &feed_url, &title, &cfg)?;
-    let rules = db::active_rules(&conn).unwrap_or_default();
-    // `upsert_article` returns `true` only for genuinely new *unread* rows, so
-    // articles a `read` rule pre-marked read are correctly excluded from the
-    // returned `unread_count` (matching the sidebar's `list_feeds` count).
-    let mut unread = 0i64;
-    for raw in &messages {
-        if let Some(parsed) = newsletter::email_to_article(raw) {
-            if db::upsert_article(&conn, feed_id, &parsed.article, false, &rules)? {
-                unread += 1;
-            }
-        }
-    }
-    // Record that the mailbox was just polled. The IMAP fetch above is a
-    // genuine, successful refresh of this source — without this the feed's
-    // `last_fetched_at` stays NULL and the sidebar reads it as "never
-    // refreshed" until the next scheduler tick (up to the refresh interval
-    // away). Mirrors `touch_feed` in `scheduler::poll_newsletters` for the
-    // background poll, and the same handling `add_feed` applies.
-    let _ = db::touch_feed(&conn, feed_id);
-    let last_fetched_at = db::feed_last_fetched(&conn, feed_id).ok().flatten();
-    drop(conn);
-
-    Ok(Feed {
-        id: feed_id,
-        feed_url,
-        site_url: None,
-        title,
-        description: None,
-        favicon_url: None,
-        folder_id: None,
-        source_type: SourceType::Newsletter.as_str().to_string(),
-        last_fetched_at,
-        fetch_error: None,
-        unread_count: unread,
-        refresh_interval_min: None,
-        auto_translate: false,
-        open_mode: None,
-    })
+    let _ = (state, input);
+    Err(AppError::other(
+        "Email-to-RSS ingestion is disabled. This build is RSS-only; email accounts are not supported.",
+    ))
 }
 
 /// Every configured newsletter source (passwords omitted).
@@ -1527,10 +1433,7 @@ pub async fn list_newsletter_sources(
 
 /// Remove a newsletter source and all of its ingested articles.
 #[tauri::command]
-pub async fn remove_newsletter_source(
-    state: State<'_, AppState>,
-    feed_id: i64,
-) -> AppResult<()> {
+pub async fn remove_newsletter_source(state: State<'_, AppState>, feed_id: i64) -> AppResult<()> {
     let conn = state.db.lock().await;
     db::delete_newsletter_source(&conn, feed_id)
 }
@@ -1617,6 +1520,32 @@ pub async fn delete_highlight(state: State<'_, AppState>, id: i64) -> AppResult<
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn wechat_connector_is_fixed_to_loopback() {
+        let endpoint = Url::parse(WECHAT_CONNECTOR_ENDPOINT).unwrap();
+        assert_eq!(endpoint.scheme(), "http");
+        assert_eq!(endpoint.host_str(), Some("127.0.0.1"));
+        assert_eq!(endpoint.port(), Some(8080));
+        assert!(endpoint.username().is_empty());
+        assert!(endpoint.password().is_none());
+    }
+
+    #[test]
+    fn local_connector_probe_is_available_only_to_the_main_app_origin() {
+        for (label, raw, expected) in [
+            ("main", "tauri://localhost", true),
+            ("main", "https://tauri.localhost", true),
+            ("page-view", "tauri://localhost", false),
+            ("main", "https://example.com", false),
+        ] {
+            assert_eq!(
+                trusted_main_origin(label, &Url::parse(raw).unwrap()),
+                expected,
+                "{label} {raw}",
+            );
+        }
+    }
 
     // --- preview-translation helpers: the plain-text round-trip the list uses ---
 

@@ -2,7 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "./i18n";
-import App from "./App";
+import WorkspaceApp from "./WorkspaceApp";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { isMac } from "./lib/platform";
 // Bundle the three UI / reader fonts so Windows and Linux render with the
@@ -41,7 +41,7 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
-        <App />
+        <WorkspaceApp />
       </QueryClientProvider>
     </ErrorBoundary>
   </React.StrictMode>,

@@ -5,6 +5,7 @@
 import { create } from "zustand";
 import i18n from "./i18n";
 import * as api from "./api";
+import { loadDefaultOpenMode } from "./lib/readerViewMode";
 import type { ArticleQuery } from "./types";
 
 /** Appearance is two independent axes: a colour `Palette` (the family — warm
@@ -262,13 +263,10 @@ function loadPrefs(): Prefs {
     showReadingTime: ls.bool("pref.showReadingTime", true),
     markReadOnOpen: ls.bool("pref.markReadOnOpen", true),
     markReadOnScroll: ls.bool("pref.markReadOnScroll", false),
-    // Migrates the pre-0.15 boolean "auto-extract full text" toggle: a user
-    // who had it on keeps auto-extraction as their default open mode.
-    defaultOpenMode: ls.oneOf<OpenMode>(
-      "pref.defaultOpenMode",
-      OPEN_MODES,
-      ls.bool("pref.autoExtract", false) ? "extracted" : "reader",
-    ),
+    // A valid global preference (or its legacy auto-extract predecessor) is
+    // user configuration and remains authoritative. With neither, new installs
+    // begin in Web; per-feed overrides are resolved later by the reader.
+    defaultOpenMode: loadDefaultOpenMode(),
     startupView: ls.oneOf<StartupView>(
       "pref.startupView",
       ["all", "unread", "starred", "last"],

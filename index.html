@@ -2,9 +2,9 @@
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/papr.svg" />
+    <link rel="icon" type="image/png" href="/scholay-app-icon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Papr</title>
+    <title>scholay tody</title>
 
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -58,11 +58,12 @@
       }
       html[data-theme="dark"] #app-loading { background: #16140f; }
       #app-loading.hide { opacity: 0; pointer-events: none; }
+      #app-loading .logo { width: 52px; height: 54px; object-fit: contain; }
+      html[data-theme="dark"] #app-loading .logo { filter: invert(1); }
       #app-loading .brand {
         font-size: 15px;
         font-weight: 600;
         letter-spacing: 0.08em;
-        text-transform: uppercase;
         color: #a8a39a;
       }
       #app-loading .spinner {
@@ -80,7 +81,8 @@
   <body>
     <div id="root"></div>
     <div id="app-loading">
-      <div class="brand">Papr</div>
+      <img class="logo" src="/scholay-logo.png" alt="" width="52" height="54" />
+      <div class="brand">scholay tody</div>
       <div class="spinner"></div>
     </div>
     <script type="module" src="/src/main.tsx"></script>

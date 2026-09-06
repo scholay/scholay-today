@@ -24,6 +24,7 @@ a.out
 !.vscode/extensions.json
 .idea
 .DS_Store
+._*
 
 # ralph-loop local state
 .claude/
@@ -32,3 +33,34 @@ a.out
 *.njsproj
 *.sln
 *.sw?
+
+# Personal runtime data / credentials must never enter this public repository.
+.env
+.env.*
+!.env.example
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+*.pem
+*.key
+credentials.json
+cookies.json
+storage-state*.json
+auth-state*.json
+/backups/
+/outputs/
+/state/
+/logs/
+/.local/
+/artifacts/
+/test-results/
+/design-qa.md
+*.app/
+*.dmg
+*.exe
+*.msi
+*.pdb

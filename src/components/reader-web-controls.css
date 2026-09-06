@@ -1,0 +1,126 @@
+/* Explicit reader/web modes, using the existing reader palette and controls. */
+.reader .reader-toolbar {
+  height: auto;
+  min-height: 38px;
+  flex-wrap: wrap;
+  row-gap: 5px;
+}
+
+.reader-toolbar > .tb-btn:not(.spacer) { flex-shrink: 0; }
+
+.reader-view-switch {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  margin-left: auto;
+  padding: 2px;
+  gap: 2px;
+  border: 1px solid var(--hair);
+  border-radius: 8px;
+  background: var(--paper);
+}
+
+.reader-view-switch button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 25px;
+  padding: 3px 8px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.reader-view-switch button:hover:not(:disabled) { background: var(--hover); color: var(--ink); }
+.reader-view-switch button.active { background: var(--accent-soft); color: var(--accent); }
+.reader-view-switch button:disabled { opacity: .4; cursor: default; }
+
+/* AI remains the only visible body. This normal-size host exists solely so the
+   native child browser can load and capture responsively underneath it; the
+   Rust command creates that browser hidden before it can paint. */
+.ai-formatted-stage {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.ai-format-page-host {
+  position: absolute;
+  inset: 39px 0 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.reader-summary-hint {
+  margin: 20px 0;
+  padding: 13px 15px;
+  border: 1px solid var(--hair);
+  border-left: 3px solid var(--accent);
+  border-radius: 8px;
+  background: var(--paper);
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.reader-summary-hint p { margin: 0 0 9px; }
+.reader-summary-actions { display: flex; flex-wrap: wrap; gap: 8px 16px; }
+
+.reader-summary-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.reader-summary-actions button:hover:not(:disabled) { text-decoration: underline; }
+.reader-summary-actions button:disabled { opacity: .5; cursor: default; }
+
+.reader-web-navigation { display: inline-flex; align-items: center; gap: 3px; flex-shrink: 0; }
+.reader-web-navigation button {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; padding: 0; border: 0; border-radius: 5px;
+  color: var(--muted); background: none; cursor: pointer;
+}
+.reader-web-navigation button:hover:not(:disabled) { background: var(--hover); color: var(--ink); }
+.reader-web-navigation button:disabled { opacity: .4; cursor: default; }
+.reader-web-back-icon { transform: rotate(180deg); }
+.reader-web-loading { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; color: var(--muted); font-size: 10px; white-space: nowrap; }
+.reader-web-spinner { width: 12px; height: 12px; border: 1.5px solid var(--hair-strong); border-top-color: var(--muted); border-radius: 50%; animation: reader-web-spin .9s linear infinite; }
+@keyframes reader-web-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .reader-web-spinner { animation: none; } }
+.reader-web-notice {
+  display: flex; align-items: center; gap: 10px; padding: 7px 18px;
+  flex-shrink: 0; border-bottom: 1px solid var(--hair); background: var(--paper);
+  color: var(--muted); font-size: 11px; line-height: 1.6;
+}
+.reader-web-notice > span { flex: 1; min-width: 0; }
+.reader-web-notice button {
+  flex-shrink: 0; border: 0; padding: 0; color: var(--accent);
+  background: none; font: inherit; cursor: pointer;
+}
+.reader-web-notice button:hover { text-decoration: underline; }
+.reader-web-notice .reader-web-notice-close { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 4px; color: var(--muted); }
+.reader-web-notice .reader-web-notice-close:hover { background: var(--hover); color: var(--ink); }
+
+.reader-view-switch button:focus-visible,
+.reader-summary-actions button:focus-visible,
+.reader-web-navigation button:focus-visible,
+.reader-web-notice button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}

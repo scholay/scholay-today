@@ -297,7 +297,7 @@
 [data-density="spacious"]{ --row-py: 20px; --list-px: 24px; }
 
 * { box-sizing: border-box; }
-html, body, #root { height: 100%; margin: 0; }
+html, body, #root { width: 100%; max-width: 100%; min-width: 0; height: 100%; margin: 0; overflow: clip; }
 /* Document background = the themed READER colour, NOT the `--paper` floor.
    During a live window resize the grid's panes lag a frame behind the new
    viewport size, and whatever the document paints under them shows in that gap.
@@ -317,7 +317,7 @@ body {
   font-family: var(--ui);
   -webkit-font-smoothing: antialiased;
   color: var(--ink);
-  overflow: hidden;
+  overflow: clip;
 }
 
 button { font-family: inherit; }
@@ -343,7 +343,8 @@ button { font-family: inherit; }
 
 /* ====== Window ====== */
 .window {
-  width: 100vw;
+  width: 100%;
+  min-width: 0;
   height: 100vh;
   /* The resize seam (see html/body note) shows THIS background wherever the
      panes lag a frame behind a live resize. A flat colour can only match one
@@ -361,8 +362,10 @@ button { font-family: inherit; }
   );
   color: var(--ink);
   display: grid;
-  grid-template-columns: var(--col-sidebar) var(--col-list) 1fr;
-  overflow: hidden;
+  grid-template-columns: var(--col-sidebar) var(--col-list) minmax(0, 1fr);
+  /* Unlike hidden, clip cannot be scrolled sideways by focus/scrollIntoView.
+     Scrolling belongs to the three pane-local content containers only. */
+  overflow: clip;
   position: relative;
   transition: background .35s ease, color .25s ease;
 }
@@ -446,6 +449,7 @@ button { font-family: inherit; }
   flex-direction: column;
   position: relative;
   min-height: 0;
+  min-width: 0;
 }
 /* On macOS the sidebar reserves a 38px strip at the top so the brand row
    clears the overlay traffic lights (configured in tauri.conf.json). On
@@ -455,6 +459,18 @@ button { font-family: inherit; }
 :root[data-platform="mac"] .sidebar { padding-top: 38px; }
 :root[data-platform="other"] .sidebar { padding-top: 24px; }
 
+.app-brand {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  max-width: 100%;
+  color: var(--ink);
+  user-select: none;
+}
+.app-brand-logo { width: 24px; height: 25px; object-fit: contain; flex-shrink: 0; }
+:root[data-mode="dark"] .app-brand-logo { filter: invert(1); }
+.app-brand-name { font: 600 17px/1.4 var(--ui); letter-spacing: -.025em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sb-brand {
   display: flex;
   align-items: center;
@@ -509,6 +525,7 @@ button { font-family: inherit; }
 .sidebar-scroll {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 4px 8px 12px;
 }
 
@@ -695,18 +712,20 @@ button { font-family: inherit; }
   display: flex;
   flex-direction: column;
   min-height: 0;
+  min-width: 0;
   position: relative;
 }
 
 .list-header {
-  padding: 14px 22px 8px;
+  padding: 0 22px 8px;
   border-bottom: 1px solid var(--hair);
   flex-shrink: 0;
+  min-width: 0;
+  container-type: inline-size;
+  container-name: list-heading;
 }
-/* macOS reserves the top strip for the overlay title bar / traffic lights,
-   so the header title sits below it. Other platforms have the native title
-   bar above the webview and don't need the extra inset. */
-:root[data-platform="mac"] .list-header { padding-top: 38px; }
+/* Controls occupy the formerly empty title strip; the title still starts at
+   38px. No global header or extra gap is added to the reader. */
 .list-title {
   font-size: 18px;
   font-weight: 600;
@@ -714,14 +733,20 @@ button { font-family: inherit; }
   color: var(--ink);
   margin: 0;
   display: flex;
+  flex-wrap: wrap;
+  min-width: 0;
   align-items: baseline;
   gap: 10px;
   white-space: nowrap;
 }
+.list-title-text { flex: 1 1 120px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .list-title-meta {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  flex-shrink: 0;
+  max-width: 100%;
+  flex-wrap: wrap;
 }
 .list-title .count {
   font-size: 12px;
@@ -730,39 +755,20 @@ button { font-family: inherit; }
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
-.list-translate-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  padding: 2px;
-  border-radius: 999px;
-  border: 1px solid var(--hair);
-  background: color-mix(in srgb, var(--bg-elev) 88%, transparent);
-}
-.list-translate-btn {
-  background: transparent;
-  border: 0;
-  color: var(--muted);
-  font-size: 10.5px;
-  font-weight: 600;
-  cursor: pointer;
-  padding: 3px 7px;
-  border-radius: 999px;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  transition: background .12s, color .12s;
-}
-.list-translate-btn:hover { color: var(--ink-2); background: var(--hover); }
-.list-translate-btn.on {
-  color: var(--ink);
-  background: var(--hover);
-}
 .list-meta {
   display: flex;
   gap: 4px;
-  margin-top: 10px;
+  height: 38px;
+  margin-top: 0;
   align-items: center;
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+.list-mark-read { margin-left: auto; flex-shrink: 0; }
+.list-meta-btn span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.list-meta-btn svg { flex-shrink: 0; }
+@container list-heading (max-width: 330px) {
+  .list-mark-read span { display: none; }
 }
 .list-meta-btn {
   background: none;
@@ -771,6 +777,9 @@ button { font-family: inherit; }
   font-size: 11.5px;
   cursor: pointer;
   padding: 4px 8px;
+  min-width: 0;
+  height: 28px;
+  -webkit-app-region: no-drag;
   border-radius: 5px;
   display: inline-flex;
   align-items: center;
@@ -778,11 +787,13 @@ button { font-family: inherit; }
   transition: background .12s, color .12s;
 }
 .list-meta-btn:hover { background: var(--hover); color: var(--ink-2); }
+.list-meta-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .list-meta-btn.on { color: var(--ink); background: var(--hover); }
 
 .list-scroll {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .art {
@@ -831,15 +842,6 @@ button { font-family: inherit; }
   flex-shrink: 0;
 }
 .art-sep { color: var(--muted-2); flex-shrink: 0; }
-.art-translate-status {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--muted);
-  flex-shrink: 0;
-}
-.art-translate-status.loading { color: var(--muted); }
-.art-translate-status.error { color: var(--danger); }
 .art-star {
   margin-left: auto;
   color: var(--accent);
@@ -889,6 +891,7 @@ button { font-family: inherit; }
   display: flex;
   flex-direction: column;
   min-height: 0;
+  min-width: 0;
   position: relative;
 }
 
@@ -1997,13 +2000,14 @@ button { font-family: inherit; }
 .s-about .mark {
   width: 64px; height: 64px;
   border-radius: 16px;
-  background: var(--accent);
+  background: none;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   margin-bottom: 18px;
   color: #fff;
 }
+.s-about .mark img { width: 64px; height: 64px; object-fit: contain; }
 .s-about .app-name {
   font-family: var(--reader-font);
   font-size: 28px;
@@ -2214,6 +2218,104 @@ button { font-family: inherit; }
 }
 .modal-actions {
   display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px;
+}
+
+/* Optional WechRss hand-off inside Add Feed. The helper owns QR login and
+   credentials; Papr only shows a fixed-loopback reachability status and keeps
+   the ordinary RSS field available underneath. */
+.modal-add-feed {
+  max-height: calc(100vh - 36px);
+  overflow-y: auto;
+}
+.wechat-feed-entry {
+  margin: -2px 0 14px;
+  padding: 11px 12px;
+  border: 1px solid var(--hair-strong);
+  border-radius: 9px;
+  background: var(--panel);
+}
+.wechat-feed-entry-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.wechat-feed-entry-head > div:first-child {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 7px;
+}
+.wechat-feed-entry-head strong {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.wechat-experimental {
+  flex-shrink: 0;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font-size: 9.5px;
+  font-weight: 600;
+}
+.wechat-connector-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 0;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+.wechat-status-dot {
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--muted-2);
+}
+.wechat-status-dot.is-online {
+  background: var(--success);
+  box-shadow: 0 0 0 3px var(--success-soft);
+}
+.wechat-status-refresh {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.wechat-status-refresh:hover { background: var(--hover); color: var(--ink); }
+.wechat-status-refresh:disabled { opacity: .45; cursor: default; }
+.wechat-feed-entry > p {
+  margin: 7px 0 9px;
+  color: var(--muted);
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+.wechat-feed-entry-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.wechat-feed-entry-actions .s-btn {
+  padding: 5px 9px;
+  font-size: 11.5px;
+}
+@media (max-width: 520px) {
+  .wechat-feed-entry-head { display: block; }
+  .wechat-connector-status { margin-top: 6px; justify-content: flex-start; }
+  .wechat-feed-entry-actions { flex-wrap: wrap; }
 }
 
 /* Source-type tabs in the Add-feed dialog (feature F5). A quiet segmented
@@ -2499,7 +2601,9 @@ button { font-family: inherit; }
 .app-shell {
   display: flex;
   flex-direction: column;
-  width: 100vw;
+  width: 100%;
+  min-width: 0;
+  overflow: clip;
   height: 100vh;
 }
 .app-shell .window {

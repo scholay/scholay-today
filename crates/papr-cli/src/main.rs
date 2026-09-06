@@ -102,7 +102,7 @@ enum Cmd {
         #[arg(long, value_name = "ID")]
         folder: Option<i64>,
     },
-    /// Fetch new articles over the network (RSS feeds and newsletter mailboxes).
+    /// Fetch new feed articles over the network (email polling is disabled).
     Refresh {
         /// Only refresh this feed id (default: all feeds).
         #[arg(long, value_name = "ID")]
@@ -164,7 +164,7 @@ enum Cmd {
     },
     /// List configured email-newsletter sources.
     Newsletters,
-    /// Manage newsletter sources (add / remove).
+    /// Manage legacy newsletter sources (adding email accounts is disabled).
     Newsletter {
         #[command(subcommand)]
         cmd: NewsletterCmd,
@@ -356,7 +356,7 @@ enum HighlightCmd {
 
 #[derive(Subcommand)]
 enum NewsletterCmd {
-    /// Add a newsletter source polled over IMAP.
+    /// Disabled in this RSS-only build; email accounts are not supported.
     Add {
         #[arg(long)]
         title: String,
@@ -1102,8 +1102,8 @@ fn cmd_unsubscribe(path: &Path, id: i64, yes: bool) -> Result<String, AxiError> 
         return ok_line(format!("feed: #{id} not found (no-op)"));
     };
     require_yes(yes, "unsubscribe", &format!("papr unsubscribe {id}"))?;
-    db::delete_feed(&conn, id).map_err(db_err)?;
-    ok_line(format!("unsubscribed: #{id} {title}"))
+    papr_core::library::apply(&conn,&[papr_core::library::Mutation::ArchiveFeed{id}],"cli",false,None,None).map_err(db_err)?;
+    ok_line(format!("unsubscribed: #{id} {title} (articles retained; restore in Settings → Agent access)"))
 }
 
 fn cmd_mark_all(path: &Path, f: &FilterArgs) -> Result<String, AxiError> {
@@ -1166,16 +1166,17 @@ fn cmd_folder(path: &Path, cmd: FolderCmd) -> Result<String, AxiError> {
     let conn = open_rw(path)?;
     match cmd {
         FolderCmd::Create { name } => {
-            let id = db::create_folder(&conn, &name).map_err(db_err)?;
+            let result = papr_core::library::apply(&conn,&[papr_core::library::Mutation::CreateFolder{name:name.clone(),parent_id:None}],"cli",false,None,None).map_err(db_err)?;
+            let id = result["results"][0]["id"].as_i64().unwrap_or_default();
             ok_line(format!("folder: #{id} {name}"))
         }
         FolderCmd::Rename { id, name } => {
-            db::rename_folder(&conn, id, &name).map_err(db_err)?;
+            papr_core::library::apply(&conn,&[papr_core::library::Mutation::RenameFolder{id,name:name.clone()}],"cli",false,None,None).map_err(db_err)?;
             ok_line(format!("folder: #{id} renamed to {name}"))
         }
         FolderCmd::Delete { id, yes } => {
             require_yes(yes, "folder delete", &format!("papr folder delete {id}"))?;
-            db::delete_folder(&conn, id).map_err(db_err)?;
+            papr_core::library::apply(&conn,&[papr_core::library::Mutation::DeleteFolder{id}],"cli",false,None,None).map_err(db_err)?;
             ok_line(format!("folder: #{id} deleted"))
         }
     }
@@ -1185,18 +1186,18 @@ fn cmd_feed(path: &Path, cmd: FeedCmd) -> Result<String, AxiError> {
     let conn = open_rw(path)?;
     match cmd {
         FeedCmd::Rename { id, title } => {
-            db::rename_feed(&conn, id, &title).map_err(db_err)?;
+            papr_core::library::apply(&conn,&[papr_core::library::Mutation::RenameFeed{id,title:title.clone()}],"cli",false,None,None).map_err(db_err)?;
             ok_line(format!("feed: #{id} renamed to {title}"))
         }
         FeedCmd::Move { id, folder } => {
-            db::move_feed(&conn, id, folder).map_err(db_err)?;
+            papr_core::library::apply(&conn,&[papr_core::library::Mutation::MoveFeed{id,folder_id:folder}],"cli",false,None,None).map_err(db_err)?;
             match folder {
                 Some(f) => ok_line(format!("feed: #{id} moved to folder {f}")),
                 None => ok_line(format!("feed: #{id} moved out of any folder")),
             }
         }
         FeedCmd::Interval { id, minutes } => {
-            db::set_feed_refresh_interval(&conn, id, minutes).map_err(db_err)?;
+            papr_core::library::apply(&conn,&[papr_core::library::Mutation::SetFeedInterval{id,minutes}],"cli",false,None,None).map_err(db_err)?;
             match minutes {
                 Some(m) => ok_line(format!("feed: #{id} refresh interval set to {m} min")),
                 None => ok_line(format!("feed: #{id} now follows the global interval")),
@@ -1376,35 +1377,22 @@ fn cmd_newsletters(path: &Path) -> Result<String, AxiError> {
     d.set("newsletters", Value::Array(table));
     if rows.is_empty() {
         d.help(vec![
-            "Run `papr newsletter add --title .. --host .. --user .. --password ..` to add one".into(),
+            "Email-to-RSS ingestion is disabled in this RSS-only build.".into(),
         ]);
     }
     Ok(d.into_toon())
 }
 
 fn cmd_newsletter(path: &Path, cmd: NewsletterCmd) -> Result<String, AxiError> {
-    let conn = open_rw(path)?;
     match cmd {
-        NewsletterCmd::Add { title, host, port, user, password, folder } => {
-            let cfg = papr_core::ingestion::newsletter::NewsletterConfig {
-                host: host.clone(),
-                port,
-                username: user.clone(),
-                password,
-                folder: folder.clone(),
-            };
-            // Synthetic, stable feed URL so the source de-dupes like an RSS feed.
-            let feed_url = format!("newsletter://{user}@{host}/{folder}");
-            if let Some(existing) = db::find_feed_by_url(&conn, &feed_url).map_err(db_err)? {
-                return ok_line(format!("newsletter: #{existing} already configured (no-op)"));
-            }
-            let id = db::insert_newsletter_source(&conn, &feed_url, &title, &cfg).map_err(db_err)?;
-            let mut d = Doc::new();
-            d.set("newsletter", json!({ "feed": id, "title": title, "host": format!("{host}:{port}") }));
-            d.help(vec![format!("Run `papr refresh --feed {id}` to poll it now")]);
-            Ok(d.into_toon())
-        }
+        // Refuse before opening/migrating the RSS database. Do not echo any
+        // supplied account fields or credentials into the structured error.
+        NewsletterCmd::Add { .. } => Err(AxiError::runtime_help(
+            "Email-to-RSS ingestion is disabled.",
+            vec!["Email accounts are not supported in this RSS-only build.".into()],
+        )),
         NewsletterCmd::Remove { feed_id, yes } => {
+            let conn = open_rw(path)?;
             require_yes(yes, "newsletter remove", &format!("papr newsletter remove {feed_id}"))?;
             db::delete_newsletter_source(&conn, feed_id).map_err(db_err)?;
             db::delete_feed(&conn, feed_id).map_err(db_err)?;
@@ -1965,6 +1953,39 @@ fn render_error(e: &AxiError) -> String {
 mod tests {
     use super::*;
     use clap::CommandFactory;
+
+    #[test]
+    fn newsletter_add_refuses_before_opening_database_without_echoing_credentials() {
+        let path = std::env::temp_dir().join(format!(
+            "papr-mail-guard-{}-{}.db",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos(),
+        ));
+        assert!(!path.exists());
+        let error = cmd_newsletter(
+            &path,
+            NewsletterCmd::Add {
+                title: "test mailbox".into(),
+                host: "guard.example.invalid".into(),
+                port: 993,
+                user: "guard-user@example.invalid".into(),
+                password: "guard-test-password".into(),
+                folder: "INBOX".into(),
+            },
+        )
+        .unwrap_err();
+        let rendered = render_error(&error);
+        assert!(rendered.contains("Email-to-RSS ingestion is disabled"));
+        assert!(rendered.contains("RSS-only build"));
+        assert!(!rendered.contains("Mail workspace"));
+        assert!(!rendered.contains("guard-user"));
+        assert!(!rendered.contains("guard-test-password"));
+        assert!(!rendered.contains("guard.example.invalid"));
+        assert!(!path.exists());
+    }
 
     /// CI guard against the installable skill drifting from the actual CLI
     /// surface: every command must be documented as a `papr <name>` example, and

@@ -1,59 +1,69 @@
 name: CI
-
 on:
   push:
-    branches: [main]
+    branches: [main, 'codex/**']
   pull_request:
     branches: [main]
-
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
-  frontend:
-    name: Type-check & build frontend
-    runs-on: ubuntu-latest
+  desktop:
+    name: Test and package (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v4
         with:
-          version: 9
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
+          version: 9.15.9
+      - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Build (tsc + vite)
-        run: pnpm build
-
-      - name: Run tests (vitest)
-        run: pnpm test
-
-  rust:
-    name: Check Rust (src-tauri)
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+      - run: pnpm build
+      - run: pnpm prepare:mcp
+      - run: cargo test --workspace --locked
+      - name: Real WebView2 capture and image-export fixture
+        if: runner.os == 'Windows'
+        run: cargo run --locked -p papr --features windows-smoke --example windows-smoke
+      - run: pnpm build:desktop
+      - name: Stage Windows installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force artifacts | Out-Null
+          Copy-Item target/release/bundle/nsis/*.exe artifacts/
+          Copy-Item target/release/scholay-mcp.exe artifacts/
+          Get-ChildItem artifacts -File | Get-FileHash -Algorithm SHA256 | Format-Table -AutoSize | Out-String | Set-Content artifacts/SHA256SUMS.txt
+      - name: Stage unsigned macOS app
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p artifacts
+          ditto -c -k --sequesterRsrc --keepParent 'target/release/bundle/macos/scholay tody.app' artifacts/scholay-tody-macos.zip
+          shasum -a 256 artifacts/*.zip > artifacts/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: scholay-tody-${{ runner.os }}-${{ github.sha }}
+          path: artifacts/
+          if-no-files-found: error
+          retention-days: 30
+  linux-core:
+    name: Portable library and MCP tests (Linux)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Rust build
-        uses: swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri
-
-      - name: Check compile
-        run: cargo check --manifest-path src-tauri/Cargo.toml --all-targets
-
-      - name: Run tests
-        run: cargo test --manifest-path src-tauri/Cargo.toml
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+      - run: cargo test --locked -p papr-core -p scholay-local-ipc -p scholay-mcp

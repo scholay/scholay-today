@@ -9,11 +9,14 @@ import { isMac, modCombo } from "../lib/platform";
 import { tagColor, TAG_PALETTE } from "../lib/tagColors";
 import type { ArticleQuery, Feed, Folder, Tag } from "../types";
 import Icon, { type IconName } from "./Icon";
+import Brand from "./Brand";
 import ContextMenu, { type MenuEntry } from "./ContextMenu";
 import FeedAvatar from "./FeedAvatar";
 import PromptDialog from "./PromptDialog";
+import { descendantIds, folderAncestors, orderedFolders } from "../lib/folderTree";
 
 interface Props {
+  workspaceSwitch?: React.ReactNode;
   onAddFeed: () => void;
   /** Opens the Add-feed dialog on its Explore tab. */
   onExplore: () => void;
@@ -82,6 +85,7 @@ function SbItem({
 }
 
 export default function Sidebar({
+  workspaceSwitch,
   onAddFeed,
   onExplore,
   onOpenSettings,
@@ -200,7 +204,7 @@ export default function Sidebar({
   };
 
   const allFeeds = feeds.data ?? [];
-  const allFolders = folders.data ?? [];
+  const allFolders = orderedFolders(folders.data ?? []);
   const allTags = tags.data ?? [];
   const isActive = (q: ArticleQuery) => sameQuery(q, query);
 
@@ -222,8 +226,8 @@ export default function Sidebar({
       // A collapsed folder doesn't render its feed rows, so there's nothing to
       // scroll to yet — expand it and let this effect re-run (collapsed dep)
       // once the row is mounted.
-      if (feed?.folderId != null && collapsed[feed.folderId]) {
-        setCollapsed((s) => ({ ...s, [feed.folderId!]: false }));
+      if (feed?.folderId != null && [feed.folderId, ...folderAncestors(feed.folderId, allFolders)].some((id) => collapsed[id])) {
+        setCollapsed((s) => { const next = { ...s }; for (const id of [feed.folderId!, ...folderAncestors(feed.folderId!, allFolders)]) next[id] = false; return next; });
         return;
       }
     }
@@ -538,11 +542,8 @@ export default function Sidebar({
     <div className="sidebar" role="navigation">
       {isMac && <div className="titlebar" data-tauri-drag-region />}
 
-      {isMac && (
-        <div className="sb-brand">
-          <img className="sb-brand-mark" src="/papr.svg" alt="" />
-          <span className="sb-brand-name">Papr</span>
-        </div>
+      {workspaceSwitch ? <div className="workspace-sidebar-heading">{workspaceSwitch}</div> : isMac && (
+        <Brand className="sb-brand" />
       )}
 
       <div
@@ -674,10 +675,14 @@ export default function Sidebar({
         )}
 
         {allFolders.map((folder) => {
+          const ancestors = folderAncestors(folder.id, allFolders);
+          if (ancestors.some((id) => collapsed[id])) return null;
+          const descendants = descendantIds(folder.id, allFolders);
+          const aggregate = visibleFeeds.filter((f) => f.folderId != null && descendants.has(f.folderId));
           const inFolder = visibleFeeds.filter((f) => f.folderId === folder.id);
           // In "unread only" mode an empty folder is hidden — unless a drag is
           // active, when it must stay as a drop target.
-          if (unreadOnly && dragId == null && inFolder.length === 0)
+          if (unreadOnly && dragId == null && aggregate.length === 0)
             return null;
           const isCollapsed = collapsed[folder.id];
           const folderActive = isActive({ kind: "folder", value: folder.id });
@@ -685,7 +690,7 @@ export default function Sidebar({
           // folder is the active view — expanded *and* not selected, the
           // per-feed badges already carry the same signal and a header total
           // would just duplicate them.
-          const folderUnread = inFolder.reduce((n, f) => n + f.unreadCount, 0);
+          const folderUnread = aggregate.reduce((n, f) => n + f.unreadCount, 0);
           return (
             <div
               key={folder.id}
@@ -696,11 +701,7 @@ export default function Sidebar({
                 }
               }}
               onDrop={() => handleDrop(folder.id)}
-              style={
-                dropFolder === folder.id
-                  ? { outline: "2px solid var(--accent)", borderRadius: 8 }
-                  : undefined
-              }
+              style={{ marginLeft: Math.min(ancestors.length, 6) * 12, ...(dropFolder === folder.id ? { outline: "2px solid var(--accent)", borderRadius: 8 } : {}) }}
             >
               <div
                 className={`sb-folder ${isCollapsed ? "collapsed" : ""} ${

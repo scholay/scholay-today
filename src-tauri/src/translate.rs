@@ -238,7 +238,9 @@ fn collect_text(doc: &Html) -> (Vec<TextSlot>, Vec<String>) {
     let mut slots = Vec::new();
     let mut cores = Vec::new();
     for node in doc.tree.nodes() {
-        let Node::Text(t) = node.value() else { continue };
+        let Node::Text(t) = node.value() else {
+            continue;
+        };
         let s: &str = t;
         if s.trim().is_empty() {
             continue;
@@ -254,7 +256,11 @@ fn collect_text(doc: &Html) -> (Vec<TextSlot>, Vec<String>) {
         // Whitespace is ASCII, so these byte slices never split a UTF-8 char.
         let prefix = s[..s.len() - s.trim_start().len()].to_string();
         let suffix = s[s.trim_end().len()..].to_string();
-        slots.push(TextSlot { id: node.id(), prefix, suffix });
+        slots.push(TextSlot {
+            id: node.id(),
+            prefix,
+            suffix,
+        });
         cores.push(s.trim().to_string());
     }
     (slots, cores)
@@ -463,11 +469,7 @@ fn deepl_timestamp(i_count: u64) -> u64 {
     ts - (ts % n) + n
 }
 
-async fn deepl_segments(
-    client: &Client,
-    cores: &[String],
-    target: &str,
-) -> AppResult<Vec<String>> {
+async fn deepl_segments(client: &Client, cores: &[String], target: &str) -> AppResult<Vec<String>> {
     let mut out = Vec::with_capacity(cores.len());
     for chunk in cores.chunks(50) {
         out.extend(deepl_free_call(client, chunk, target).await?);
@@ -526,7 +528,12 @@ async fn deepl_free_call(
         .ok_or_else(|| AppError::other("DeepL translate error: malformed response"))?;
     Ok(arr
         .iter()
-        .map(|t| t.get("text").and_then(|x| x.as_str()).unwrap_or_default().to_string())
+        .map(|t| {
+            t.get("text")
+                .and_then(|x| x.as_str())
+                .unwrap_or_default()
+                .to_string()
+        })
         .collect())
 }
 
@@ -561,7 +568,11 @@ async fn bing_segments(
         let body: Vec<Value> = chunk.iter().map(|c| json!({ "Text": c })).collect();
         let resp = client
             .post("https://api-edge.cognitive.microsofttranslator.com/translate")
-            .query(&[("from", ""), ("to", bing_code(target)), ("api-version", "3.0")])
+            .query(&[
+                ("from", ""),
+                ("to", bing_code(target)),
+                ("api-version", "3.0"),
+            ])
             .header("Authorization", format!("Bearer {token}"))
             .header("Content-Type", "application/json")
             .json(&body)
@@ -669,7 +680,10 @@ mod tests {
         let p = translate_system_prompt("Japanese");
         let lower = p.to_lowercase();
         assert!(lower.contains("html"), "no HTML mention: {p}");
-        assert!(lower.contains("preserve") || lower.contains("keep"), "no preserve directive: {p}");
+        assert!(
+            lower.contains("preserve") || lower.contains("keep"),
+            "no preserve directive: {p}"
+        );
     }
 
     // ── strip_code_fence ────────────────────────────────────────────────

@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>AI formatted renderer checks</title>
+<style>body{font:15px/1.6 system-ui;max-width:900px;margin:40px auto;padding:0 24px}pre{white-space:pre-wrap}blockquote{border-left:3px solid #bd653f;padding-left:16px}table{border-collapse:collapse}td,th{border:1px solid #ccc;padding:4px 12px}</style>
+<h1>AI formatted renderer checks</h1>
+<pre id="results">Running real DOM checks…</pre>
+<section id="preview"></section>
+<script type="module">
+import { renderMarkdown } from "/src/lib/markdown.ts";
+import { prepareObsidianMarkdown, splitMarkdownFrontmatter } from "/src/lib/aiFormatted.ts";
+const checks = [];
+const assert = (name, value) => checks.push({name, passed: Boolean(value)});
+const source = '---\ntitle: "A source: with punctuation"\nsource: "https://example.invalid/article"\ntags: ["papr", "ai-formatted"]\n---\n\n## 原文信息\n\n> [!info] 来源边界\n> 只整理实际抓取的页面内容。\n\n| 项目 | 值 |\n| --- | --- |\n| 日期 | 2026-08-30 |\n\n[来源](https://example.invalid/article)';
+const parts = splitMarkdownFrontmatter(source);
+const html = renderMarkdown(prepareObsidianMarkdown(parts.body));
+const doc = new DOMParser().parseFromString(html, "text/html");
+assert("frontmatter stays separate", parts.frontmatter?.includes('tags: ["papr", "ai-formatted"]') && !html.includes("tags:"));
+assert("Chinese heading survives", doc.querySelector("h2")?.textContent === "原文信息");
+assert("callout safely previews as a blockquote", doc.querySelector("blockquote strong")?.textContent === "INFO");
+assert("GFM table survives", doc.querySelectorAll("table tbody td").length === 2);
+assert("source link stays HTTPS", doc.querySelector("a")?.getAttribute("href") === "https://example.invalid/article");
+assert("external link protection survives", doc.querySelector("a")?.getAttribute("rel")?.includes("noopener"));
+const attack = [
+  '<' + 'script>window.__paprInjected=true</' + 'script>',
+  '<img src="data:image/png,invalid" onerror="window.__paprInjected=true">',
+  '<svg onload="window.__paprInjected=true"><text>bad</text></svg>',
+  '<iframe src="https://example.invalid/frame"></iframe>',
+  '<form><input value="not-a-captured-password"></form>',
+  '[unsafe](javascript:alert(1))',
+  '<a href="data:text/html,example" onclick="window.__paprInjected=true">unsafe data</a>',
+  '> [!warning] <img src=x onerror="window.__paprInjected=true">\n> Safe warning text',
+  '<div style="background:url(https://example.invalid/tracker)" onmouseover="window.__paprInjected=true">Safe text</div>',
+].join("\n\n");
+const cleaned = renderMarkdown(prepareObsidianMarkdown(attack));
+const unsafeDoc = new DOMParser().parseFromString(cleaned, "text/html");
+assert("active and remote-loading elements removed", !unsafeDoc.querySelector("script,img,svg,iframe,object,embed,form,input"));
+assert("event handlers and inline styles removed", !unsafeDoc.querySelector("[onerror],[onload],[onclick],[onmouseover],[style]"));
+assert("unsafe URL schemes removed", [...unsafeDoc.querySelectorAll("a")].every(a => !a.hasAttribute("href") || /^https?:|mailto:/i.test(a.getAttribute("href"))));
+assert("safe warning text preserved", unsafeDoc.body.textContent.includes("Safe warning text"));
+const fenced = '```md\n> [!info] literal example\n```';
+assert("fenced callout remains literal", prepareObsidianMarkdown(fenced) === fenced);
+assert("unterminated YAML is not discarded", splitMarkdownFrontmatter('---\nunknown: text').frontmatter === null);
+document.getElementById("preview").innerHTML = html + cleaned;
+assert("no injected script executed", window.__paprInjected !== true);
+document.getElementById("results").textContent = `${checks.filter(c => c.passed).length}/${checks.length} passed\n` + checks.map(c => `${c.passed ? 'PASS' : 'FAIL'} ${c.name}`).join("\n");
+document.title = checks.every(c => c.passed) ? "PASS — AI formatted renderer checks" : "FAIL — AI formatted renderer checks";
+</script>
+</html>

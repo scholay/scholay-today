@@ -1,0 +1,5 @@
+/* The source viewer reuses the RSS native-web controls, not article styling. */
+.hot-page-view { min-width: 0; min-height: 0; overflow: clip; }
+.hot-page-view .reader-webview-bar { min-width: 0; }
+.hot-page-view .reader-webview-url { min-width: 0; }
+.hot-page-view .reader-webview-host { min-width: 0; }

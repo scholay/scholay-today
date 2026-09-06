@@ -8,8 +8,23 @@
 // `crate::ingestion`, etc. unchanged.
 pub use papr_core::{ai, db, error, extraction, ingestion, models, opml, sanitize, sync};
 
+mod ai_formatted;
+mod article_document;
+mod article_export;
 mod backing;
 mod commands;
+mod library_service;
+mod platforms;
+#[cfg(windows)]
+mod windows_credentials;
+#[cfg(all(windows, feature = "windows-smoke"))]
+mod windows_smoke;
+#[cfg(all(windows, feature = "windows-smoke"))]
+pub use windows_smoke::run as run_windows_smoke;
+mod public_fetch;
+mod hot_auth;
+mod hot_board;
+mod hot_sources;
 mod notify;
 mod page_view;
 // The tauri-coupled refresh scheduler (progress channels, AppHandle) — built on
@@ -72,9 +87,8 @@ pub fn run() {
     // the GitHub release feed; the process plugin performs the relaunch.
     #[cfg(desktop)]
     {
-        builder = builder
-            .plugin(tauri_plugin_updater::Builder::new().build())
-            .plugin(tauri_plugin_process::init());
+        // Upstream releases do not contain this local build's RSS/web-view fixes.
+        builder = builder.plugin(tauri_plugin_process::init());
     }
 
     builder
@@ -84,6 +98,12 @@ pub fn run() {
             fs::create_dir_all(&data_dir).ok();
             let db_path = data_dir.join("papr.db");
             let conn = db::open(&db_path).expect("open database");
+            // Optional desktop extension: never raise the RSS schema version,
+            // so existing CLI/fallback builds can keep opening the same DB.
+            // An unavailable extension must not prevent ordinary RSS startup.
+            if papr_core::ai_formatted::ensure_schema(&conn).is_err() {
+                log::warn!("AI-formatted storage could not be initialized; RSS remains available");
+            }
             // A small pool of read-only connections for UI queries — under WAL
             // they run concurrently with the writer, so the interface stays
             // responsive while a background refresh is writing.
@@ -110,6 +130,10 @@ pub fn run() {
             let dark_shade = db::get_setting(&conn, "dark_shade").ok().flatten();
 
             app.manage(AppState::new(conn, readers, http));
+            library_service::spawn(app.handle().clone());
+            // Optional workspace: record its separate cache path only. No hot
+            // database or network work runs during ordinary RSS startup.
+            app.manage(hot_board::HotBoardState::new(data_dir.join("hot-board.db")));
 
             // ── papr:// deep links (feature F6) ───────────────────────
             // Registered after `app.manage` so the handler can always reach
@@ -120,8 +144,7 @@ pub fn run() {
                 use tauri_plugin_deep_link::DeepLinkExt;
                 let handle = app.handle().clone();
                 app.deep_link().on_open_url(move |event| {
-                    let urls: Vec<String> =
-                        event.urls().iter().map(|u| u.to_string()).collect();
+                    let urls: Vec<String> = event.urls().iter().map(|u| u.to_string()).collect();
                     handle_deep_links(&handle, &urls);
                 });
                 // On Linux/Windows dev builds, register the scheme at runtime
@@ -227,11 +250,18 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            article_export::export_article_bundle,
+            library_service::library_status,
+            library_service::library_permissions,
+            library_service::library_apply,
+            platforms::platform_status,
+            platforms::platform_action,
             commands::list_folders,
             commands::create_folder,
             commands::rename_folder,
             commands::delete_folder,
             commands::list_feeds,
+            commands::wechat_connector_status,
             commands::add_feed,
             commands::search_feed_directory,
             commands::delete_feed,
@@ -259,6 +289,13 @@ pub fn run() {
             commands::ai_ask,
             commands::ai_digest,
             commands::ai_translate,
+            ai_formatted::capture_page_view,
+            ai_formatted::get_ai_formatted,
+            ai_formatted::ai_format_page,
+            hot_board::list_hot_sources,
+            hot_board::get_hot_snapshot,
+            hot_auth::get_hot_auth_status,
+            hot_auth::save_hot_api_token,
             commands::translate_article_preview,
             commands::storage_stats,
             commands::cleanup_articles,
@@ -299,7 +336,9 @@ pub fn run() {
             page_view::set_page_view_bounds,
             page_view::set_page_view_visible,
             page_view::close_page_view,
+            page_view::page_view_navigate_history,
+            page_view::page_view_reload,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running Papr");
+        .expect("error while running scholay tody");
 }

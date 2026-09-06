@@ -1,5 +1,5 @@
 [workspace]
-members = ["src-tauri", "crates/papr-core", "crates/papr-cli"]
+members = ["src-tauri", "crates/papr-core", "crates/papr-cli", "crates/scholay-mcp", "crates/scholay-local-ipc"]
 resolver = "2"
 
 # Shared dependency versions, inherited by the member crates via

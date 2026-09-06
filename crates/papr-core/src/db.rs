@@ -338,6 +338,7 @@ pub fn open(path: &Path) -> AppResult<Connection> {
     conn.pragma_update(None, "synchronous", "NORMAL")?;
     conn.pragma_update(None, "busy_timeout", 5000)?;
     MIGRATIONS.to_latest(&mut conn)?;
+    crate::library::ensure_schema(&conn)?;
     register_functions(&conn)?;
     Ok(conn)
 }
@@ -518,7 +519,7 @@ pub fn list_feeds(conn: &Connection) -> AppResult<Vec<Feed>> {
                 f.folder_id, f.source_type, f.last_fetched_at, f.fetch_error,
                 (SELECT COUNT(*) FROM articles a WHERE a.feed_id = f.id AND a.is_read = 0),
                 f.refresh_interval_min, f.auto_translate, f.open_mode
-         FROM feeds f ORDER BY f.title COLLATE NOCASE",
+         FROM feeds f WHERE f.id NOT IN (SELECT feed_id FROM library_archived_feeds) ORDER BY f.title COLLATE NOCASE",
     )?;
     let rows = stmt
         .query_map([], |r| {
@@ -553,7 +554,7 @@ pub type FeedToRefresh = (i64, String, Option<String>, Option<String>);
 pub fn feeds_to_refresh(conn: &Connection) -> AppResult<Vec<FeedToRefresh>> {
     let mut stmt = conn.prepare(
         "SELECT id, feed_url, etag, last_modified FROM feeds
-         WHERE source_type != 'newsletter'",
+         WHERE source_type != 'newsletter' AND id NOT IN (SELECT feed_id FROM library_archived_feeds)",
     )?;
     let rows = stmt
         .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
@@ -579,6 +580,7 @@ pub fn feeds_due_for_refresh(
     let mut stmt = conn.prepare(
         "SELECT id, feed_url, etag, last_modified FROM feeds
          WHERE source_type != 'newsletter'
+           AND id NOT IN (SELECT feed_id FROM library_archived_feeds)
            AND COALESCE(refresh_interval_min, ?1) < ?2
            AND ( last_fetched_at IS NULL
                  OR (julianday('now') - julianday(last_fetched_at)) * 1440.0
@@ -598,7 +600,7 @@ pub fn feeds_due_for_refresh(
 pub fn feeds_to_refresh_for_feed(conn: &Connection, feed_id: i64) -> AppResult<Vec<FeedToRefresh>> {
     let mut stmt = conn.prepare(
         "SELECT id, feed_url, etag, last_modified FROM feeds
-         WHERE source_type != 'newsletter' AND id = ?1",
+         WHERE source_type != 'newsletter' AND id = ?1 AND id NOT IN (SELECT feed_id FROM library_archived_feeds)",
     )?;
     let rows = stmt
         .query_map(params![feed_id], |r| {
@@ -615,7 +617,7 @@ pub fn feeds_to_refresh_in_folder(
 ) -> AppResult<Vec<FeedToRefresh>> {
     let mut stmt = conn.prepare(
         "SELECT id, feed_url, etag, last_modified FROM feeds
-         WHERE source_type != 'newsletter' AND folder_id = ?1",
+         WHERE source_type != 'newsletter' AND id NOT IN (SELECT feed_id FROM library_archived_feeds) AND folder_id IN (WITH RECURSIVE tree(id) AS (SELECT ?1 UNION SELECT l.folder_id FROM library_folder_links l JOIN tree t ON l.parent_id=t.id) SELECT id FROM tree)",
     )?;
     let rows = stmt
         .query_map(params![folder_id], |r| {
@@ -754,6 +756,7 @@ pub fn feeds_for_export(conn: &Connection) -> AppResult<Vec<(String, String, Opt
         "SELECT f.title, f.feed_url, fo.name
          FROM feeds f LEFT JOIN folders fo ON fo.id = f.folder_id
          WHERE f.source_type != 'newsletter'
+           AND NOT EXISTS (SELECT 1 FROM library_archived_feeds a WHERE a.feed_id = f.id)
          ORDER BY fo.name, f.title",
     )?;
     let rows = stmt
@@ -767,7 +770,8 @@ pub fn feeds_for_export(conn: &Connection) -> AppResult<Vec<(String, String, Opt
 /// subscribe to), matching the OPML-export filter.
 pub fn feed_urls_for_sync(conn: &Connection) -> AppResult<Vec<String>> {
     let mut stmt = conn.prepare(
-        "SELECT feed_url FROM feeds WHERE source_type != 'newsletter' AND feed_url <> ''",
+        "SELECT feed_url FROM feeds WHERE source_type != 'newsletter' AND feed_url <> ''
+         AND NOT EXISTS (SELECT 1 FROM library_archived_feeds a WHERE a.feed_id = feeds.id)",
     )?;
     let rows = stmt
         .query_map([], |r| r.get(0))?
@@ -1116,8 +1120,10 @@ pub fn upsert_article(
     }
     // The article row, its FTS index entry, and its enclosures must land
     // together — a partial insert leaves an unsearchable or enclosure-less
-    // article. Wrap them in a transaction so a mid-loop failure rolls back.
-    let tx = conn.unchecked_transaction()?;
+    // article. Start a transaction when called alone, or join the caller's
+    // atomic subscription batch. SQLite does not allow nested BEGIN calls.
+    let transaction = if conn.is_autocommit() { Some(conn.unchecked_transaction()?) } else { None };
+    let tx: &Connection = transaction.as_deref().unwrap_or(conn);
     let n = tx.execute(
         "INSERT INTO articles
             (feed_id, guid, url, title, author, summary, content_html, body_text,
@@ -1144,7 +1150,7 @@ pub fn upsert_article(
             params![id, e.url, e.mime_type, e.length],
         )?;
     }
-    tx.commit()?;
+    if let Some(transaction) = transaction { transaction.commit()?; }
     // A row inserted but pre-marked read by a `read` rule is not "new" from
     // the user's point of view — report it as not-inserted so it is excluded
     // from new-article tallies.
@@ -1171,7 +1177,7 @@ fn article_filter(query: &ArticleQuery, unread_only: bool) -> (Vec<String>, Vec<
             binds.push(Value::Integer(*id));
         }
         ArticleQuery::Folder(id) => {
-            where_clauses.push("f.folder_id = ?".into());
+            where_clauses.push("f.folder_id IN (WITH RECURSIVE tree(id) AS (SELECT ? UNION SELECT l.folder_id FROM library_folder_links l JOIN tree t ON l.parent_id=t.id) SELECT id FROM tree)".into());
             binds.push(Value::Integer(*id));
         }
         ArticleQuery::Tag(id) => {
@@ -1602,7 +1608,7 @@ pub fn mark_all_read(
         ArticleQuery::ReadLater => ("read_later = 1", None),
         ArticleQuery::Feed(id) => ("feed_id = ?1", Some(*id)),
         ArticleQuery::Folder(id) => (
-            "feed_id IN (SELECT id FROM feeds WHERE folder_id = ?1)",
+            "feed_id IN (SELECT id FROM feeds WHERE folder_id IN (WITH RECURSIVE tree(id) AS (SELECT ?1 UNION SELECT l.folder_id FROM library_folder_links l JOIN tree t ON l.parent_id=t.id) SELECT id FROM tree))",
             Some(*id),
         ),
         ArticleQuery::Tag(id) => (
@@ -2497,6 +2503,7 @@ mod tests {
         let mut conn = Connection::open_in_memory().unwrap();
         conn.pragma_update(None, "foreign_keys", "ON").unwrap();
         MIGRATIONS.to_latest(&mut conn).unwrap();
+        crate::library::ensure_schema(&conn).unwrap();
         // The production `open` / `open_reader` register custom SQL functions;
         // the in-memory test connection must too so `preview_rule`'s
         // `unicode_lower` resolves.

@@ -1,5 +1,35 @@
 // Type mirrors of the Rust domain model (see src-tauri/src/models.rs).
 
+/** A snapshot of the rendered native webpage, never a substitute RSS snippet. */
+export interface PageCapture {
+  captureId: string;
+  articleId: number;
+  sourceUrl: string;
+  sourceTitle: string;
+  text: string;
+  capturedAt: string;
+  truncated: boolean;
+  charCount: number;
+  warnings: string[];
+}
+
+/** Independently persisted Markdown. Failed generations never replace this. */
+export interface AiFormattedDraft {
+  articleId: number;
+  captureId: string;
+  sourceUrl: string;
+  sourceTitle: string;
+  capturedAt: string;
+  generatedAt: string;
+  model: string;
+  language: "zh" | "en" | "ja";
+  markdown: string;
+  sourceText: string;
+  sourceCharCount: number;
+  sourceTruncated: boolean;
+  warnings: string[];
+}
+
 export type SourceType =
   | "rss"
   | "youtube"
@@ -8,26 +38,6 @@ export type SourceType =
   | "bluesky"
   | "reddit"
   | "newsletter";
-
-/** A configured email-newsletter source (mirrors commands::NewsletterSource). */
-export interface NewsletterSource {
-  feedId: number;
-  title: string;
-  host: string;
-  port: number;
-  username: string;
-  folder: string;
-}
-
-/** Payload for add_newsletter_source (mirrors commands::NewsletterInput). */
-export interface NewsletterInput {
-  title: string | null;
-  host: string;
-  port: number;
-  username: string;
-  password: string;
-  folder: string;
-}
 
 /** A feed-discovery result (mirrors discovery::DiscoveryResult). */
 export interface DiscoveryResult {
@@ -40,10 +50,18 @@ export interface DiscoveryResult {
   fromDirectory: boolean;
 }
 
+/** Reachability only for the optional local WechRss helper. Authentication and
+ *  credentials stay entirely inside that helper. */
+export interface WechatConnectorStatus {
+  reachable: boolean;
+  endpoint: string;
+}
+
 export interface Folder {
   id: number;
   name: string;
   position: number;
+  parentId?: number | null;
 }
 
 export interface Feed {

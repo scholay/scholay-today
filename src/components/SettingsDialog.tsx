@@ -16,8 +16,10 @@ import { downloadFile } from "../lib/download";
 import { NO_AUTOCORRECT } from "../lib/inputProps";
 import type { Feed, Rule, RuleAction, RuleField, RulePreview } from "../types";
 import Icon, { type IconName } from "./Icon";
+import { APP_NAME } from "./Brand";
 import ConfirmDialog from "./ConfirmDialog";
 import FeedAvatar from "./FeedAvatar";
+import { AgentSettings, PlatformSettings } from "./IntegrationSettings";
 
 interface Props {
   onClose: () => void;
@@ -34,6 +36,8 @@ const SECTIONS: { id: string; labelKey: string; icon: IconName }[] = [
   { id: "appearance", labelKey: "settings.nav.appearance", icon: "globe" },
   { id: "reading", labelKey: "settings.nav.reading", icon: "eye" },
   { id: "subscriptions", labelKey: "settings.nav.subscriptions", icon: "rss" },
+  { id: "platforms", labelKey: "平台与授权", icon: "globe" },
+  { id: "agents", labelKey: "智能体与目录", icon: "command" },
   { id: "filters", labelKey: "settings.nav.filters", icon: "mute" },
   { id: "sync", labelKey: "settings.nav.sync", icon: "refresh" },
   { id: "shortcuts", labelKey: "settings.nav.shortcuts", icon: "command" },
@@ -131,7 +135,7 @@ export default function SettingsDialog({
           ))}
           <div className="settings-nav-spacer" />
           <div className="settings-version">
-            Papr{version && ` ${version}`}
+            {APP_NAME}{version && ` ${version}`}
           </div>
         </div>
 
@@ -150,6 +154,8 @@ export default function SettingsDialog({
 
           <div className="settings-scroll">
             {section === "general" && <GeneralSection />}
+            {section === "platforms" && <PlatformSettings />}
+            {section === "agents" && <AgentSettings onToast={onToast} />}
             {section === "appearance" && <AppearanceSection />}
             {section === "reading" && <ReadingSection />}
             {section === "subscriptions" && (
@@ -2239,9 +2245,9 @@ function AboutSection() {
   return (
     <div className="s-about">
       <div className="mark">
-        <Icon name="papr" size={34} color="#fff" />
+        <img src="/scholay-app-icon.png" alt="" width={64} height={64} />
       </div>
-      <h1 className="app-name">Papr</h1>
+      <h1 className="app-name">{APP_NAME}</h1>
       <p className="tagline">{t("settings.about.tagline")}</p>
       <div className="version">
         Version{version && ` ${version}`}
@@ -2250,6 +2256,8 @@ function AboutSection() {
         {checking ? t("update.checking") : t("update.checkButton")}
       </button>
       <p className="credits">
+        Based on Papr · MIT License · © 2026 l0ng-ai
+        <br />
         {t("settings.about.creditsFonts")}
         <br />
         {t("settings.about.creditsRender")}

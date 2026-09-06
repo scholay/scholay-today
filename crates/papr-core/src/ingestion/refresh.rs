@@ -1,9 +1,9 @@
 //! Headless feed refresh — the UI-free core of a refresh cycle.
 //!
 //! Selects the sources to touch, fetches them with bounded concurrency, ingests
-//! new articles, polls newsletter mailboxes over IMAP, and runs retention
-//! cleanup. Progress is reported through an `on_event` callback so callers can
-//! render it however they like.
+//! new RSS articles, and runs retention cleanup. Legacy newsletter rows remain
+//! readable, but this RSS-only build never reads their IMAP configuration or
+//! polls mailboxes. Progress is reported through an `on_event` callback.
 //!
 //! The desktop app wraps [`refresh_core`] with a Tauri progress channel,
 //! notifications, FreshRSS sync and tray updates (see `papr_lib::scheduler`);
@@ -11,24 +11,12 @@
 
 use crate::db;
 use crate::error::AppResult;
-use crate::ingestion::newsletter;
 use crate::ingestion::{fetch, parse};
 use crate::models::{RefreshProgress, SourceType};
 use rusqlite::Connection;
 use std::sync::Arc;
-use std::time::Duration;
 use tokio::sync::{Mutex, Semaphore};
 use tokio::task::JoinSet;
-
-/// Wall-clock cap for polling one newsletter mailbox over IMAP. Generous enough
-/// for a slow mailbox with large messages, short enough that a wedged server
-/// never stalls the refresh cycle. Shared with the interactive
-/// `add_newsletter_source` probe so a hung server can't hang the Add dialog.
-pub const NEWSLETTER_POLL_TIMEOUT_SECS: u64 = 90;
-
-/// Result of polling one newsletter mailbox: the feed id paired with either the
-/// raw RFC822 message bytes or an error string describing the failure.
-type MailboxPoll = (i64, Result<Vec<Vec<u8>>, String>);
 
 /// Outcome of a [`refresh_core`] run.
 #[derive(Clone, Copy, Debug)]
@@ -44,13 +32,13 @@ pub struct RefreshSummary {
 /// Which feeds a refresh run should touch.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum RefreshScope {
-    /// Every feed and newsletter — the manual refresh and OPML import.
+    /// Every non-newsletter feed — the manual refresh and OPML import.
     All,
     /// Only sources whose per-feed (or global) interval has elapsed — the
     /// background scheduler. An empty due-set skips the whole pipeline.
     Due,
-    /// A single feed by id (and its newsletter mailbox, if any) — the per-feed
-    /// manual refresh (`refresh --feed <id>`). Always runs the pipeline.
+    /// A single non-newsletter feed by id — the per-feed manual refresh
+    /// (`refresh --feed <id>`). Always runs the pipeline.
     Feed(i64),
     /// Every feed in one folder by id — the per-folder manual refresh. Always
     /// runs the pipeline.
@@ -60,7 +48,7 @@ pub enum RefreshScope {
 /// Insert a batch of articles for one feed in bounded chunks, releasing the
 /// shared DB lock between each so concurrent queries aren't starved while a
 /// large feed (hundreds of items) is being ingested. Returns the count newly
-/// inserted; `label` only distinguishes the warning text (`rss`/`newsletter`).
+/// inserted; `label` only identifies the warning text.
 async fn upsert_articles(
     db: &Mutex<Connection>,
     feed_id: i64,
@@ -119,7 +107,7 @@ async fn fetch_one(
 }
 
 /// Refresh the sources selected by `scope`: fetch with bounded concurrency,
-/// ingest new articles, poll newsletters, and run retention cleanup. Reports
+/// ingest new RSS articles and run retention cleanup. Reports
 /// progress through `on_event` and returns the new-article count.
 ///
 /// UI-free and side-effect-light: it performs no cross-process locking (callers
@@ -132,7 +120,7 @@ pub async fn refresh_core(
     scope: RefreshScope,
     mut on_event: impl FnMut(RefreshProgress),
 ) -> AppResult<RefreshSummary> {
-    let (feeds, newsletters, concurrency, dedup, rules) = {
+    let (feeds, concurrency, dedup, rules) = {
         let conn = db.lock().await;
         // The global default interval for feeds without a per-feed override.
         let global_min = db::get_setting(&conn, "refresh_interval_min")
@@ -142,38 +130,25 @@ pub async fn refresh_core(
             .filter(|m| *m >= 5)
             .map(|m| m.min(db::REFRESH_OFF_MINUTES))
             .unwrap_or(30);
-        let (feeds, newsletters) = match scope {
-            RefreshScope::All => (
-                db::feeds_to_refresh(&conn)?,
-                db::newsletter_sources_to_poll(&conn).unwrap_or_default(),
-            ),
-            RefreshScope::Due => (
-                db::feeds_due_for_refresh(&conn, global_min)?,
-                db::newsletter_sources_due_to_poll(&conn, global_min).unwrap_or_default(),
-            ),
-            // The HTTP fetch set excludes newsletter sources (`source_type !=
-            // 'newsletter'` in the query), so a newsletter feed's synthetic
-            // `newsletter://` URL is never handed to `fetch_one`; it is polled
-            // over IMAP via the separate newsletter set instead.
-            RefreshScope::Feed(id) => (
-                db::feeds_to_refresh_for_feed(&conn, id)?,
-                db::newsletter_sources_for_feed(&conn, id).unwrap_or_default(),
-            ),
-            RefreshScope::Folder(id) => (
-                db::feeds_to_refresh_in_folder(&conn, id)?,
-                db::newsletter_sources_in_folder(&conn, id).unwrap_or_default(),
-            ),
+        // These existing queries exclude only newsletter sources, retaining
+        // RSS, podcasts and other supported feed kinds. Do not even select
+        // legacy IMAP configuration: GUI and CLI share this RSS-only boundary.
+        let feeds = match scope {
+            RefreshScope::All => db::feeds_to_refresh(&conn)?,
+            RefreshScope::Due => db::feeds_due_for_refresh(&conn, global_min)?,
+            RefreshScope::Feed(id) => db::feeds_to_refresh_for_feed(&conn, id)?,
+            RefreshScope::Folder(id) => db::feeds_to_refresh_in_folder(&conn, id)?,
         };
         let concurrency =
             db::setting_parsed::<i64>(&conn, "net_concurrency", 6).clamp(1, 16) as usize;
         let dedup = db::setting_flag(&conn, "dedup_enabled", false);
         let rules = db::active_rules(&conn).unwrap_or_default();
-        (feeds, newsletters, concurrency, dedup, rules)
+        (feeds, concurrency, dedup, rules)
     };
 
     // Nothing due this cycle: emit a no-op Started/Finished and bow out before
     // the heavier tail. The manual refresh (scope All) always runs the pipeline.
-    if scope == RefreshScope::Due && feeds.is_empty() && newsletters.is_empty() {
+    if scope == RefreshScope::Due && feeds.is_empty() {
         on_event(RefreshProgress::Started { total: 0 });
         on_event(RefreshProgress::Finished { new_articles: 0 });
         return Ok(RefreshSummary {
@@ -255,10 +230,6 @@ pub async fn refresh_core(
         });
     }
 
-    // Newsletter sources: poll each configured IMAP mailbox and ingest any new
-    // messages as articles, alongside the RSS refresh above.
-    total_new += poll_newsletters(db, newsletters, dedup, &rules).await;
-
     // Retention: drop old read articles when a finite window is configured. The
     // DELETE scans the whole table, so throttle it to once per day rather than
     // running on every refresh cycle.
@@ -291,87 +262,158 @@ pub async fn refresh_core(
     })
 }
 
-/// Poll every configured email-newsletter source over IMAP and ingest any new
-/// messages as articles. Runs as part of [`refresh_core`] so newsletters
-/// refresh on the same cadence as RSS feeds. Returns the new-article count.
-///
-/// A failure for one mailbox (bad credentials, server down) is recorded as the
-/// feed's `fetch_error` and does not abort the others.
-async fn poll_newsletters(
-    db: &Mutex<Connection>,
-    sources: Vec<(i64, newsletter::NewsletterConfig)>,
-    dedup: bool,
-    rules: &[crate::models::Rule],
-) -> usize {
-    if sources.is_empty() {
-        return 0;
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::SocketAddr;
+    use std::path::Path;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::Duration;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    const RSS: &str = r#"<?xml version="1.0"?><rss version="2.0"><channel>
+        <title>Local RSS fixture</title><link>https://example.invalid/</link>
+        <description>Offline regression fixture</description><item>
+        <title>New RSS item</title><guid isPermaLink="false">rss-only-new</guid>
+        <link>https://example.invalid/new</link><description>Fixture body</description>
+        </item></channel></rss>"#;
+
+    struct LocalServer {
+        address: SocketAddr,
+        connections: Arc<AtomicUsize>,
+        conditional: Arc<AtomicUsize>,
+        task: tokio::task::JoinHandle<()>,
     }
 
-    // Poll the mailboxes concurrently — each IMAP fetch is slow and fully
-    // independent. Bounded by a semaphore so a user with many newsletters does
-    // not open dozens of TLS connections at once.
-    let sem = Arc::new(Semaphore::new(4));
-    let mut set: JoinSet<MailboxPoll> = JoinSet::new();
-    for (feed_id, cfg) in sources {
-        let sem = sem.clone();
-        set.spawn(async move {
-            let _permit = sem.acquire().await;
-            // `imap` is a blocking crate with no per-operation timeout: a server
-            // that completes the handshake but stalls mid-command would block
-            // forever. Bound the whole fetch with a wall-clock timeout so a hung
-            // mailbox degrades to a per-feed error instead of wedging the run.
-            //
-            // Caveat: `timeout` only abandons the `JoinHandle`; the
-            // `spawn_blocking` thread keeps running until its socket read
-            // unblocks. A truly cancellable poll needs a socket read-timeout,
-            // but the pinned `imap` alpha exposes no public accessor for the
-            // session's stream (its `SetReadTimeout` is crate-internal), so that
-            // would mean hand-rolling the rustls handshake. Tracked as a
-            // follow-up; acceptable here because a permanently-stalling mailbox
-            // is a rare, user-fixable misconfiguration.
-            let fetched = match tokio::time::timeout(
-                Duration::from_secs(NEWSLETTER_POLL_TIMEOUT_SECS),
-                tokio::task::spawn_blocking(move || newsletter::fetch_recent(&cfg, 50)),
-            )
-            .await
-            {
-                Ok(joined) => joined
-                    .map_err(|e| e.to_string())
-                    .and_then(|r| r.map_err(|e| e.to_string())),
-                Err(_) => Err(format!(
-                    "IMAP poll timed out after {NEWSLETTER_POLL_TIMEOUT_SECS}s"
-                )),
-            };
-            (feed_id, fetched)
-        });
-    }
-
-    let mut total_new = 0usize;
-    while let Some(joined) = set.join_next().await {
-        let Ok((feed_id, fetched)) = joined else {
-            continue;
-        };
-        match fetched {
-            Ok(messages) => {
-                // Parse the RFC822 bytes into articles *before* taking the DB
-                // lock — `email_to_article` sanitizes HTML and is CPU-bound, so
-                // doing it inside the locked scope would starve concurrent queries.
-                let articles: Vec<_> = messages
-                    .iter()
-                    .filter_map(|raw| newsletter::email_to_article(raw))
-                    .map(|p| p.article)
-                    .collect();
-                total_new +=
-                    upsert_articles(db, feed_id, &articles, dedup, rules, "newsletter").await;
-                let conn = db.lock().await;
-                let _ = db::touch_feed(&conn, feed_id);
-            }
-            Err(e) => {
-                log::warn!("newsletter poll failed (feed {feed_id}): {e}");
-                let conn = db.lock().await;
-                let _ = db::set_feed_error(&conn, feed_id, &e);
-            }
+    impl LocalServer {
+        async fn start(serve_rss: bool) -> Self {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let connections = Arc::new(AtomicUsize::new(0));
+            let conditional = Arc::new(AtomicUsize::new(0));
+            let hits = connections.clone();
+            let revalidations = conditional.clone();
+            let task = tokio::spawn(async move {
+                while let Ok((mut stream, _)) = listener.accept().await {
+                    hits.fetch_add(1, Ordering::SeqCst);
+                    // IMAP tripwire: immediately close, without reading or
+                    // exchanging credentials. A regression fails instead of
+                    // hanging in the legacy blocking TLS handshake.
+                    if !serve_rss {
+                        continue;
+                    }
+                    let mut request = Vec::new();
+                    while request.len() < 8192 && !request.ends_with(b"\r\n\r\n") {
+                        let mut bytes = [0; 1024];
+                        let Ok(Ok(size)) = tokio::time::timeout(
+                            Duration::from_secs(2), stream.read(&mut bytes),
+                        ).await else { break };
+                        if size == 0 { break; }
+                        request.extend_from_slice(&bytes[..size]);
+                    }
+                    let not_modified = String::from_utf8_lossy(&request)
+                        .to_ascii_lowercase().contains("if-none-match: \"rss-only-test\"");
+                    let response = if not_modified {
+                        revalidations.fetch_add(1, Ordering::SeqCst);
+                        "HTTP/1.1 304 Not Modified\r\nConnection: close\r\n\r\n".to_string()
+                    } else {
+                        format!("HTTP/1.1 200 OK\r\nContent-Type: application/rss+xml\r\nETag: \"rss-only-test\"\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{RSS}", RSS.len())
+                    };
+                    let _ = stream.write_all(response.as_bytes()).await;
+                }
+            });
+            Self { address, connections, conditional, task }
         }
     }
-    total_new
+
+    impl Drop for LocalServer {
+        fn drop(&mut self) {
+            self.task.abort();
+        }
+    }
+
+    fn legacy_fixture(imap_port: u16) -> (Mutex<Connection>, i64, i64) {
+        // SQLite's special :memory: path never opens a user's database/file.
+        let conn = db::open(Path::new(":memory:")).unwrap();
+        let folder = db::create_folder(&conn, "Synthetic legacy folder").unwrap();
+        let legacy = db::insert_newsletter_source(
+            &conn,
+            "newsletter://synthetic@127.0.0.1/INBOX",
+            "Synthetic legacy mailbox",
+            &crate::ingestion::newsletter::NewsletterConfig {
+                host: "127.0.0.1".into(), port: imap_port,
+                username: "synthetic@example.invalid".into(),
+                password: "SYNTHETIC-ONLY-SECRET".into(), folder: "INBOX".into(),
+            },
+        ).unwrap();
+        db::move_feed(&conn, legacy, Some(folder)).unwrap();
+        (Mutex::new(conn), legacy, folder)
+    }
+
+    fn local_client() -> reqwest::Client {
+        reqwest::Client::builder().no_proxy().timeout(Duration::from_secs(2)).build().unwrap()
+    }
+
+    #[tokio::test]
+    async fn rss_only_refresh_never_connects_to_legacy_mail_in_any_scope() {
+        let tripwire = LocalServer::start(false).await;
+        let (db, legacy, folder) = legacy_fixture(tripwire.address.port());
+        let client = local_client();
+        for scope in [RefreshScope::All, RefreshScope::Due, RefreshScope::Feed(legacy), RefreshScope::Folder(folder)] {
+            let mut events = Vec::new();
+            let summary = tokio::time::timeout(
+                Duration::from_secs(3), refresh_core(&db, &client, scope, |event| events.push(event)),
+            ).await.expect("RSS-only refresh must not wait for IMAP").unwrap();
+            assert_eq!(summary.new_articles, 0);
+            assert_eq!(summary.ran, scope != RefreshScope::Due);
+            assert!(matches!(events.as_slice(), [RefreshProgress::Started { total: 0 }, RefreshProgress::Finished { new_articles: 0 }]));
+            assert_eq!(tripwire.connections.load(Ordering::SeqCst), 0);
+        }
+        let conn = db.lock().await;
+        let untouched: (Option<String>, Option<String>) = conn.query_row(
+            "SELECT last_fetched_at, fetch_error FROM feeds WHERE id=?1", [legacy],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        ).unwrap();
+        assert_eq!(untouched, (None, None));
+        assert_eq!(conn.query_row("SELECT count(*) FROM newsletter_sources", [], |row| row.get::<_, i64>(0)).unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn rss_only_refresh_preserves_rss_counts_progress_and_conditional_fetches() {
+        let tripwire = LocalServer::start(false).await;
+        let server = LocalServer::start(true).await;
+        let (db, legacy, folder) = legacy_fixture(tripwire.address.port());
+        let rss = {
+            let conn = db.lock().await;
+            let rss = db::insert_feed(&conn, &format!("http://{}/rss", server.address), None,
+                "Existing RSS", None, SourceType::Rss, Some(folder)).unwrap();
+            conn.execute("INSERT INTO articles(feed_id,guid,title) VALUES(?1,'existing-rss','Existing RSS article')", [rss]).unwrap();
+            rss
+        };
+        let client = local_client();
+        for (scope, expected_new) in [(RefreshScope::All, 1), (RefreshScope::Feed(rss), 0), (RefreshScope::Folder(folder), 0), (RefreshScope::Due, 0)] {
+            if scope == RefreshScope::Due {
+                // Exercise an actually due RSS feed alongside the legacy row.
+                db.lock().await.execute("UPDATE feeds SET last_fetched_at=NULL WHERE id=?1", [rss]).unwrap();
+            }
+            let mut events = Vec::new();
+            let summary = tokio::time::timeout(
+                Duration::from_secs(3), refresh_core(&db, &client, scope, |event| events.push(event)),
+            ).await.expect("local RSS fixture should finish").unwrap();
+            assert!(summary.ran);
+            assert_eq!(summary.new_articles, expected_new);
+            assert!(matches!(events.as_slice(), [RefreshProgress::Started { total: 1 }, RefreshProgress::FeedDone { feed_id, new_articles, error: None }, RefreshProgress::Finished { new_articles: finished }] if *feed_id == rss && *new_articles == expected_new && *finished == expected_new));
+        }
+        // The legacy mailbox is still never-fetched/due, but cannot keep an
+        // otherwise idle desktop scheduler active or add a refresh event.
+        let idle = refresh_core(&db, &client, RefreshScope::Due, |_| {}).await.unwrap();
+        assert!(!idle.ran);
+        assert_eq!(server.connections.load(Ordering::SeqCst), 4);
+        assert_eq!(server.conditional.load(Ordering::SeqCst), 3);
+        assert_eq!(tripwire.connections.load(Ordering::SeqCst), 0);
+        let conn = db.lock().await;
+        assert_eq!(conn.query_row("SELECT count(*) FROM articles WHERE feed_id=?1", [rss], |row| row.get::<_, i64>(0)).unwrap(), 2);
+        assert!(db::feed_last_fetched(&conn, rss).unwrap().is_some());
+        assert!(db::feed_last_fetched(&conn, legacy).unwrap().is_none());
+    }
 }

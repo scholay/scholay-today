@@ -24,6 +24,8 @@ export interface ListTranslationJob {
 
 interface ListTranslationState {
   jobs: Record<string, ListTranslationJob>;
+  foregroundActive: boolean;
+  setForegroundActive: (active: boolean) => void;
   enqueueVisible: (articles: ArticleSummary[], lang: string, engine: string) => void;
 }
 
@@ -63,6 +65,9 @@ const pruneJobs = (
 export const useListTranslation = create<ListTranslationState>((set, get) => {
   const runNext = () => {
     const state = get();
+    // Keep queued work and in-flight results across workspace switches, but
+    // never start another preview translation while RSS is in the background.
+    if (!state.foregroundActive) return;
     const active = Object.values(state.jobs).filter((j) => j.status === "translating").length;
     if (active >= MAX_CONCURRENT) return;
 
@@ -123,6 +128,11 @@ export const useListTranslation = create<ListTranslationState>((set, get) => {
 
   return {
     jobs: {},
+    foregroundActive: false,
+    setForegroundActive: (active) => {
+      set({ foregroundActive: active });
+      if (active) runNext();
+    },
 
     enqueueVisible: (articles, lang, engine) => {
       const targetLang = lang.trim();

@@ -71,7 +71,7 @@ pub async fn notify_new_articles(app: &AppHandle, count: usize) {
     let mut builder = app
         .notification()
         .builder()
-        .title("Papr")
+        .title("scholay tody")
         .body(new_articles_body(&lang, count));
     if sound {
         builder = builder.sound("default");

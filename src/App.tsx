@@ -12,6 +12,8 @@ import type { Palette, ResolvedMode } from "./store";
 import { useArticleActions } from "./hooks/articleActions";
 import { readCurrentItems } from "./lib/currentList";
 import { checkForUpdates } from "./lib/updater";
+import { applyThemeAccent } from "./lib/appearance";
+import { fitPaneWidths, paneResizeMax, resizePaneWidths, type PaneWidths } from "./lib/paneGeometry";
 import { useToasts, toast as toastApi, reportError } from "./toast";
 import type { ArticleQuery, ArticleSummary, Feed } from "./types";
 import Sidebar from "./components/Sidebar";
@@ -26,26 +28,6 @@ import PlayerBar from "./components/PlayerBar";
 import ResizeHandle from "./components/ResizeHandle";
 import Icon from "./components/Icon";
 import { PANEL_BOUNDS } from "./store";
-
-// The accent per (palette, mode), fed to --accent / --accent-soft / --accent-ink.
-// `accent` is the mark, `soft` the active-row/selection wash, `ink` text on that
-// wash. Paper keeps the terracotta clay brand mark in both modes; Frost and
-// Contrast use a system-blue so those families read cool. "One accent, used
-// rarely" still holds — it only ever tints small marks.
-const ACCENTS: Record<Palette, Record<ResolvedMode, { accent: string; soft: string; ink: string }>> = {
-  paper: {
-    light: { accent: "oklch(0.60 0.13 38)", soft: "oklch(0.94 0.04 50)", ink: "oklch(0.42 0.10 38)" },
-    dark: { accent: "oklch(0.74 0.13 45)", soft: "oklch(0.32 0.06 40)", ink: "oklch(0.80 0.10 45)" },
-  },
-  frost: {
-    light: { accent: "#007AFF", soft: "rgba(0, 122, 255, 0.13)", ink: "#0062CC" },
-    dark: { accent: "#0A84FF", soft: "rgba(10, 132, 255, 0.20)", ink: "#6FB4FF" },
-  },
-  contrast: {
-    light: { accent: "#0057D9", soft: "rgba(0, 87, 217, 0.14)", ink: "#003E9E" },
-    dark: { accent: "#0A84FF", soft: "rgba(10, 132, 255, 0.24)", ink: "#8CC4FF" },
-  },
-};
 
 // Native window backing per (palette, mode). The webview is made non-opaque in
 // lib.rs (to kill the white resize flash), so a resize exposes THIS colour in
@@ -66,7 +48,11 @@ function hexRgb(hex: string): [number, number, number] {
   return [(n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff];
 }
 
-export default function App() {
+// Apply the startup preference only once per application load, so a remount
+// does not replace the user's current feed or article selection.
+let startupViewApplied = false;
+
+export default function App({ active = true, onCaptureBusyChange, onRequestActivate, workspaceSwitch }: { active?: boolean; onCaptureBusyChange?: (busy: boolean) => void; onRequestActivate?: () => void; workspaceSwitch?: React.ReactNode }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
 
@@ -94,6 +80,26 @@ export default function App() {
   const sidebarWidth = useUi((s) => s.sidebarWidth);
   const listWidth = useUi((s) => s.listWidth);
   const aiWidth = useUi((s) => s.aiWidth);
+  const [viewportWidth, setViewportWidth] = useState(() => document.documentElement.clientWidth || window.innerWidth);
+  const [paneResizeSnapshot, setPaneResizeSnapshot] = useState<{ viewport: number; widths: PaneWidths } | null>(null);
+  useEffect(() => {
+    const measure = () => {
+      setViewportWidth(document.documentElement.clientWidth || window.innerWidth);
+      setPaneResizeSnapshot(null);
+    };
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, []);
+  const displayPanes = paneResizeSnapshot?.viewport === viewportWidth
+    ? paneResizeSnapshot.widths
+    : fitPaneWidths(viewportWidth, sidebarWidth, listWidth, PANEL_BOUNDS);
+  const resizePane = (pane: "sidebar" | "list", width: number) => {
+    const widths = resizePaneWidths(viewportWidth, displayPanes, pane, width, PANEL_BOUNDS);
+    setPaneResizeSnapshot({ viewport: viewportWidth, widths });
+    // Only an explicit drag/keyboard action changes the requested preference.
+    // The other pane's temporary compression must never overwrite its setting.
+    useUi.getState().setPanel(pane === "sidebar" ? { sidebarWidth: widths.sidebarWidth } : { listWidth: widths.listWidth });
+  };
   const reduceMotion = useUi((s) => s.prefs.reduceMotion);
   const focusMode = useUi((s) => s.focusMode);
 
@@ -117,8 +123,16 @@ export default function App() {
   // reader watches this flag and tears the view down while a modal is up.
   const setModalOpen = useUi((s) => s.setModalOpen);
   useEffect(() => {
-    setModalOpen(cpOpen || settings.open || addFeed || explore || newFolder);
-  }, [cpOpen, settings.open, addFeed, explore, newFolder, setModalOpen]);
+    setModalOpen(active && (cpOpen || settings.open || addFeed || explore || newFolder));
+  }, [active, cpOpen, settings.open, addFeed, explore, newFolder, setModalOpen]);
+  useEffect(() => {
+    if (active) return;
+    setCpOpen(false);
+    setSettings({ open: false });
+    setAddFeed(false);
+    setExplore(false);
+    setNewFolder(false);
+  }, [active]);
 
   // ── apply appearance to the document root ──
   useEffect(() => {
@@ -129,10 +143,7 @@ export default function App() {
     // Keep the backend's pre-paint copy on the *resolved* mode, so an OS scheme
     // change while running (mode: "system") is reflected on the next launch too.
     api.setSetting("mode", effectiveMode).catch(() => {});
-    const a = ACCENTS[palette][effectiveMode];
-    root.style.setProperty("--accent", a.accent);
-    root.style.setProperty("--accent-soft", a.soft);
-    root.style.setProperty("--accent-ink", a.ink);
+    applyThemeAccent(root.style, palette, effectiveMode);
     // Keep the native window backing on the themed reader colour. The webview is
     // non-opaque on macOS (see backing.rs), so a live resize exposes the NSWindow
     // background in the strip the webview hasn't repainted yet — use --reader so
@@ -165,6 +176,8 @@ export default function App() {
 
   // Apply the startup view preference once, on first mount.
   useEffect(() => {
+    if (startupViewApplied) return;
+    startupViewApplied = true;
     const { startupView, hideReadOnStartup } = useUi.getState().prefs;
     // Smart-view header labels in the *current* UI language. Smart-view
     // selections persist a translated label into `lastView`; re-deriving it
@@ -217,14 +230,14 @@ export default function App() {
 
   // ── apply the draggable pane widths as the grid/drawer CSS variables ──
   // These drive `.window`'s grid columns and the AI drawer's width; the resize
-  // handles write to the store, the store persists, and this mirrors the value
-  // back onto the document root.
+  // handles write preferences to the store. Only the rendered widths are
+  // viewport-clamped here; resizing the window never overwrites preferences.
   useEffect(() => {
     const root = document.documentElement.style;
-    root.setProperty("--col-sidebar", `${sidebarWidth}px`);
-    root.setProperty("--col-list", `${listWidth}px`);
+    root.setProperty("--col-sidebar", `${displayPanes.sidebarWidth}px`);
+    root.setProperty("--col-list", `${displayPanes.listWidth}px`);
     root.setProperty("--ai-width", `${aiWidth}px`);
-  }, [sidebarWidth, listWidth, aiWidth]);
+  }, [displayPanes.sidebarWidth, displayPanes.listWidth, aiWidth]);
 
   // ── toast ──
   // The store owns the queue; App owns only the dwell timer and the render.
@@ -243,6 +256,12 @@ export default function App() {
 
   // ── background refresh events from the Rust scheduler ──
   useEffect(() => {
+    const un = listen("library-changed", () => {
+      for (const key of ["feeds", "folders", "counts", "articles", "library-status"]) void qc.invalidateQueries({ queryKey: [key] });
+    });
+    return () => { void un.then((f) => f()); };
+  }, [qc]);
+  useEffect(() => {
     const un = listen("feeds-updated", () => {
       qc.invalidateQueries({ queryKey: ["feeds"] });
       qc.invalidateQueries({ queryKey: ["counts"] });
@@ -255,15 +274,16 @@ export default function App() {
 
   // ── "Settings…" from the menu-bar tray ──
   useEffect(() => {
-    const un = listen("tray-open-settings", () => setSettings({ open: true }));
+    const un = listen("tray-open-settings", () => { onRequestActivate?.(); setSettings({ open: true }); });
     return () => {
       un.then((f) => f());
     };
-  }, []);
+  }, [onRequestActivate]);
 
   // ── papr://subscribe deep links from the browser extension (F6) ──
   useEffect(() => {
     const un = listen<string>("deep-link-subscribe", (e) => {
+      onRequestActivate?.();
       setAddFeedUrl(e.payload);
       setAddFeed(true);
     });
@@ -275,6 +295,7 @@ export default function App() {
       .takePendingDeepLink()
       .then((url) => {
         if (url) {
+          onRequestActivate?.();
           setAddFeedUrl(url);
           setAddFeed(true);
         }
@@ -283,7 +304,7 @@ export default function App() {
     return () => {
       un.then((f) => f());
     };
-  }, []);
+  }, [onRequestActivate]);
 
   // ── Auto-update: one quiet check shortly after launch ──
   // Delayed so it doesn't compete with the first feed refresh for bandwidth;
@@ -374,6 +395,7 @@ export default function App() {
 
   // ── global keyboard shortcuts (design app.jsx parity) ──
   useEffect(() => {
+    if (!active) return;
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName;
       const inField = tag === "INPUT" || tag === "TEXTAREA";
@@ -511,13 +533,14 @@ export default function App() {
     // `cpOpen` is intentionally absent — the handler only ever calls
     // setCpOpen (a functional update), so it doesn't depend on the value;
     // listing it would needlessly re-bind the listener on every ⌘K.
-  }, [qc, actions, doRefresh, markAllRead, showToast, t]);
+  }, [active, qc, actions, doRefresh, markAllRead, showToast, t]);
 
   return (
     <>
       <div className="app-shell">
         <div className={`window ${focusMode ? "focus" : ""}`}>
           <Sidebar
+            workspaceSwitch={workspaceSwitch}
             onAddFeed={() => setAddFeed(true)}
             onExplore={() => setExplore(true)}
             onOpenSettings={openSettings}
@@ -527,7 +550,7 @@ export default function App() {
             onToast={showToast}
           />
           <ArticleList onToast={showToast} />
-          <Reader onToast={showToast} />
+          <Reader onToast={showToast} active={active} onCaptureBusyChange={onCaptureBusyChange} workspaceSwitch={workspaceSwitch}/>
           {/* Pane resize handles. Hidden in focus mode (the sidebar + list are
               hidden then, collapsing the grid to a single reader column). They
               sit at the column boundaries via the `left` offset below. */}
@@ -538,11 +561,11 @@ export default function App() {
                 style={{ left: "var(--col-sidebar)" }}
               >
                 <ResizeHandle
-                  width={sidebarWidth}
+                  width={displayPanes.sidebarWidth}
                   side="right"
                   min={PANEL_BOUNDS.sidebar.min}
-                  max={PANEL_BOUNDS.sidebar.max}
-                  onResize={(w) => useUi.getState().setPanel({ sidebarWidth: w })}
+                  max={paneResizeMax(viewportWidth, "sidebar", PANEL_BOUNDS, displayPanes)}
+                  onResize={(w) => resizePane("sidebar", w)}
                   label={t("app.resizeSidebar")}
                 />
               </div>
@@ -551,11 +574,11 @@ export default function App() {
                 style={{ left: "calc(var(--col-sidebar) + var(--col-list))" }}
               >
                 <ResizeHandle
-                  width={listWidth}
+                  width={displayPanes.listWidth}
                   side="right"
                   min={PANEL_BOUNDS.list.min}
-                  max={PANEL_BOUNDS.list.max}
-                  onResize={(w) => useUi.getState().setPanel({ listWidth: w })}
+                  max={paneResizeMax(viewportWidth, "list", PANEL_BOUNDS, displayPanes)}
+                  onResize={(w) => resizePane("list", w)}
                   label={t("app.resizeList")}
                 />
               </div>
@@ -566,14 +589,14 @@ export default function App() {
       </div>
 
       <CommandPalette
-        open={cpOpen}
+        open={active && cpOpen}
         onClose={() => setCpOpen(false)}
         onAction={handleCommand}
         onNavigateFeed={navigateFeed}
         onNavigateArticle={navigateArticle}
       />
 
-      {settings.open && (
+      {active && settings.open && (
         <SettingsDialog
           onClose={() => setSettings({ open: false })}
           onToast={showToast}
@@ -585,7 +608,7 @@ export default function App() {
         />
       )}
 
-      {addFeed && (
+      {active && addFeed && (
         <AddFeedDialog
           onClose={() => {
             setAddFeed(false);
@@ -596,14 +619,14 @@ export default function App() {
         />
       )}
 
-      {explore && (
+      {active && explore && (
         <ExploreDialog
           onClose={() => setExplore(false)}
           onToast={showToast}
         />
       )}
 
-      {newFolder && (
+      {active && newFolder && (
         <PromptDialog
           title={t("app.newFolderTitle")}
           placeholder={t("app.folderNamePlaceholder")}

@@ -173,6 +173,11 @@ pub struct ChatOutcome {
     /// the channel mid-stream (the user closed the AI panel) — the text is then
     /// a truncated fragment that callers must not persist as a finished result.
     pub completed: bool,
+    /// True only when the provider explicitly reported a normal text stop.
+    /// EOF, a token limit, content filtering, and tool calls are not a complete
+    /// article. Existing summary/translation behavior is unchanged; callers
+    /// requiring an auditable full result must check this flag as well.
+    pub finished_naturally: bool,
 }
 
 /// Stream a single-turn chat completion, forwarding each token to `sink`.
@@ -281,6 +286,34 @@ enum LineOutcome {
     ChannelClosed,
 }
 
+#[derive(Default)]
+struct CompletionState {
+    normal_stop: bool,
+    abnormal_stop: bool,
+}
+
+impl CompletionState {
+    fn observe(&mut self, line: &str, provider: Provider) {
+        let Some(data) = line.trim().strip_prefix("data:") else { return };
+        let Ok(value) = serde_json::from_str::<Value>(data.trim()) else { return };
+        let reason = match provider {
+            Provider::Anthropic => value["delta"]["stop_reason"].as_str(),
+            Provider::OpenAi | Provider::DeepSeek => value["choices"][0]["finish_reason"].as_str(),
+        };
+        if let Some(reason) = reason {
+            if matches!((provider, reason), (Provider::Anthropic, "end_turn") | (Provider::OpenAi | Provider::DeepSeek, "stop")) {
+                self.normal_stop = true;
+            } else {
+                self.abnormal_stop = true;
+            }
+        }
+    }
+
+    fn finished_naturally(&self) -> bool {
+        self.normal_stop && !self.abnormal_stop
+    }
+}
+
 /// Process a single SSE line: pull the `data:` payload, surface any provider
 /// error, and forward a text delta to `channel` (appending it to `full`).
 fn handle_sse_line(
@@ -329,6 +362,7 @@ async fn consume_sse(
 
     let mut buf: Vec<u8> = Vec::new();
     let mut full = String::new();
+    let mut completion = CompletionState::default();
 
     while let Some(chunk) = resp.chunk().await? {
         buf.extend_from_slice(&chunk);
@@ -343,10 +377,11 @@ async fn consume_sse(
         while let Some(pos) = buf.iter().position(|&b| b == b'\n') {
             let raw: Vec<u8> = buf.drain(..=pos).collect();
             let line = String::from_utf8_lossy(&raw);
+            completion.observe(&line, provider);
             match handle_sse_line(&line, provider, &mut full, &mut *sink)? {
                 LineOutcome::Continue => {}
                 LineOutcome::ChannelClosed => {
-                    return Ok(ChatOutcome { text: full, completed: false });
+                    return Ok(ChatOutcome { text: full, completed: false, finished_naturally: false });
                 }
             }
         }
@@ -359,14 +394,15 @@ async fn consume_sse(
     // response — would be left unprocessed in `buf` and silently dropped.
     if !buf.is_empty() {
         let line = String::from_utf8_lossy(&buf);
+        completion.observe(&line, provider);
         match handle_sse_line(&line, provider, &mut full, &mut *sink)? {
             LineOutcome::Continue => {}
             LineOutcome::ChannelClosed => {
-                return Ok(ChatOutcome { text: full, completed: false });
+                return Ok(ChatOutcome { text: full, completed: false, finished_naturally: false });
             }
         }
     }
-    Ok(ChatOutcome { text: full, completed: true })
+    Ok(ChatOutcome { text: full, completed: true, finished_naturally: completion.finished_naturally() })
 }
 
 /// Detect a provider error object carried inside an SSE data frame.
@@ -412,6 +448,30 @@ fn extract_delta(v: &Value, provider: Provider) -> Option<String> {
 mod tests {
     use super::{extract_delta, extract_error, Provider};
     use serde_json::json;
+
+    #[test]
+    fn full_document_completion_requires_explicit_normal_provider_stop() {
+        let mut state = super::CompletionState::default();
+        state.observe("data: [DONE]", Provider::OpenAi);
+        assert!(!state.finished_naturally());
+        state.observe(r#"data: {"choices":[{"finish_reason":"stop"}]}"#, Provider::OpenAi);
+        assert!(state.finished_naturally());
+        state.observe(r#"data: {"choices":[{"finish_reason":"length"}]}"#, Provider::OpenAi);
+        assert!(!state.finished_naturally());
+        let mut anthropic = super::CompletionState::default();
+        anthropic.observe(r#"data: {"type":"message_delta","delta":{"stop_reason":"end_turn"}}"#, Provider::Anthropic);
+        assert!(anthropic.finished_naturally());
+        for reason in ["max_tokens", "tool_use", "content_filter"] {
+            let mut rejected = super::CompletionState::default();
+            rejected.observe(&format!("data: {}", json!({"delta":{"stop_reason":reason}})), Provider::Anthropic);
+            assert!(!rejected.finished_naturally());
+        }
+        for reason in ["length", "content_filter", "tool_calls"] {
+            let mut rejected = super::CompletionState::default();
+            rejected.observe(&format!("data: {}", json!({"choices":[{"finish_reason":reason}]})), Provider::OpenAi);
+            assert!(!rejected.finished_naturally());
+        }
+    }
 
     #[test]
     fn openai_null_error_field_is_not_an_error() {

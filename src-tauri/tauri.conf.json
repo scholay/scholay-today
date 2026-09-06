@@ -1,20 +1,20 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Papr",
-  "version": "0.15.0",
+  "productName": "scholay tody",
+  "version": "0.16.0",
   "identifier": "com.thomas.papr",
   "mainBinaryName": "papr-desktop",
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://localhost:1430",
-    "beforeBuildCommand": "pnpm build",
+    "beforeBuildCommand": "node scripts/prepare-mcp.mjs && pnpm build",
     "frontendDist": "../dist"
   },
   "app": {
     "windows": [
       {
         "label": "main",
-        "title": "Papr",
+        "title": "scholay tody",
         "width": 1280,
         "height": 820,
         "minWidth": 920,
@@ -34,17 +34,12 @@
       "desktop": {
         "schemes": ["papr"]
       }
-    },
-    "updater": {
-      "endpoints": [
-        "https://github.com/l0ng-ai/papr/releases/latest/download/latest.json"
-      ],
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEE4OTJBNjkzOERCREFEMUUKUldRZXJiMk5rNmFTcUpDQnFPMi9CSmJwajFTcURiL2szd2lXenEyRHdKWmVGN1VFZGNxQXpUeEIK"
     }
   },
   "bundle": {
     "active": true,
-    "createUpdaterArtifacts": true,
+    "resources": { "../THIRD_PARTY_HOTBOARD.md": "THIRD_PARTY_HOTBOARD.md", "../LICENSE": "LICENSE", "../target/bundle-resources/mcp/": "mcp/" },
+    "createUpdaterArtifacts": false,
     "targets": "all",
     "category": "News",
     "icon": [

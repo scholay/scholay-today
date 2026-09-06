@@ -1,0 +1,17 @@
+[package]
+name = "scholay-local-ipc"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio.workspace = true
+sha2 = "0.10"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_System_Threading"] }
+
+[dev-dependencies]
+tempfile = "3"

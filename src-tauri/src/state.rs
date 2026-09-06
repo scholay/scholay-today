@@ -39,7 +39,10 @@ pub struct AppState {
 impl AppState {
     /// Build the shared state. `readers` must be non-empty.
     pub fn new(db: Connection, readers: Vec<Connection>, http: Client) -> Self {
-        assert!(!readers.is_empty(), "read pool must have at least one connection");
+        assert!(
+            !readers.is_empty(),
+            "read pool must have at least one connection"
+        );
         Self {
             db: Mutex::new(db),
             readers: readers.into_iter().map(Mutex::new).collect(),
@@ -84,10 +87,7 @@ impl AppState {
     /// poisoning carries no torn state — recover the guard rather than
     /// propagating the panic and taking the whole backend down.
     pub fn http(&self) -> Client {
-        self.http
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .clone()
+        self.http.read().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
     /// Swap in a freshly built HTTP client (e.g. after a proxy/timeout change).

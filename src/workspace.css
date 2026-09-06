@@ -1,0 +1,28 @@
+.workspace-host { height: 100%; width: 100%; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: clip; }
+.workspace-sidebar-heading { min-width: 0; min-height: 30px; flex-shrink: 0; margin: 19px 12px 10px; }
+.workspace-switcher { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; }
+.workspace-brand { margin-bottom: 0; }
+.workspace-tabs { display: inline-flex; align-items: center; gap: 2px; max-width: 100%; padding: 2px; border: 1px solid var(--hair); border-radius: 7px; background: var(--paper); -webkit-app-region: no-drag; }
+.workspace-tabs button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 0; border-radius: 5px; padding: 3px 11px; background: none; color: var(--muted); font: 500 12px/1.5 var(--ui); white-space: nowrap; cursor: pointer; }
+.workspace-tabs button[aria-pressed="true"] { color: var(--accent); background: var(--accent-soft); }
+.workspace-tabs button:disabled { opacity: .45; cursor: default; }
+.workspace-tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* Reuse the sidebar's existing title strip, above the brand. It is deliberately
+   not positioned relative to the heading: the sidebar owns these coordinates. */
+.workspace-sidebar-heading .workspace-tabs { position: absolute; top: 6px; left: 12px; right: 8px; z-index: 51; width: max-content; max-width: calc(100% - 20px); }
+:root[data-platform="mac"] .workspace-sidebar-heading .workspace-tabs { left: 80px; max-width: calc(100% - 88px); }
+.workspace-sidebar-heading .workspace-tabs button { gap: 4px; padding: 3px 5px; font-size: 11px; line-height: 18px; }
+.workspace-sidebar-heading .workspace-tabs svg { width: 12px; height: 12px; }
+.workspace-capture-status { color: var(--muted); font: 11px var(--ui); }
+.workspace-panels { position: relative; flex: 1; min-width: 0; min-height: 0; overflow: clip; }
+.workspace-panel { position: absolute; inset: 0; min-width: 0; min-height: 0; overflow: clip; }
+/* Keep a real-size layout for virtual rows and scroll offsets. `inert` handles
+   keyboard focus; active props suspend native surfaces and RSS-only actions. */
+.workspace-panel.is-inactive { visibility: hidden; pointer-events: none; }
+.workspace-panel > .app-shell { height: 100%; }
+/* Each sidebar now owns native traffic-light clearance. RSS retains its
+   original list/reader insets instead of adding an application-wide row. */
+.window.focus .sidebar .workspace-switcher { visibility: hidden; }
+.reader-toolbar > .workspace-switcher { flex-shrink: 0; margin-right: 10px; position: relative; }
+.reader-toolbar .workspace-brand { display: none; }
+.reader-toolbar .workspace-capture-status { position: absolute; top: 100%; left: 0; white-space: nowrap; background: var(--reader); padding: 4px 6px; border-radius: 4px; }

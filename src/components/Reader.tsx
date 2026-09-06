@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import * as api from "../api";
 import { LANGUAGES } from "../i18n";
 import { useUi, PANEL_BOUNDS } from "../store";
@@ -11,20 +12,34 @@ import { useArticleActions } from "../hooks/articleActions";
 import { renderMarkdown } from "../lib/markdown";
 import { downloadBlob, imageFilename } from "../lib/download";
 import { imageDataUrl } from "../lib/imageBytes";
+import { loadReaderViewPreference, resolveReaderViewMode, saveReaderViewPreference, type ReaderViewMode } from "../lib/readerViewMode";
+import { DEFAULT_FORMAT_LANGUAGE, isCurrentCapture, readerTabForArticle, settleAiFormatJob, type AiFormatJob, type AiFormatLanguage, type AiFormatSource } from "../lib/aiFormatted";
+import { errorText } from "../lib/errors";
+import { enqueuePageView, nextPageViewRequestId } from "../lib/pageViewQueue";
+import { applyPageViewStatus, createPageViewState, dismissPageViewNotice, isPageViewStatusEvent, markPageViewCreated, markPageViewError, markPageViewWaiting, pageViewBanner, pageViewExternalUrl, pageViewForArticle, safePageViewUrl, startPageViewWait, type PageViewAction, type PageViewState } from "../lib/pageViewState";
 import { fullDate } from "../lib/feedMeta";
 import { isMac } from "../lib/platform";
 import { reportError, toast } from "../toast";
 import { tagColor } from "../lib/tagColors";
-import type { ArticleDetail } from "../types";
+import type { ArticleDetail, PageCapture } from "../types";
+import AIFormatted from "./AIFormatted";
+import ArticleExportPanel from "./ArticleExportPanel";
+import ReaderViewOutlet, { readerSummaryKey, readerViewKey } from "./ReaderViewOutlet";
 import Icon from "./Icon";
 import TagPicker from "./TagPicker";
 import ResizeHandle from "./ResizeHandle";
 import HighlightLayer from "./HighlightLayer";
 import ContextMenu, { type MenuEntry } from "./ContextMenu";
 import Lightbox from "./Lightbox";
+import "./reader-web-controls.css";
 
 interface Props {
+  workspaceSwitch?: React.ReactNode;
   onToast: (msg: string) => void;
+  /** Keep RSS state mounted while suspending its native page and new actions. */
+  active?: boolean;
+  /** Only page capture blocks workspace switching, never model generation. */
+  onCaptureBusyChange?: (busy: boolean) => void;
 }
 
 function youtubeId(url: string | null): string | null {
@@ -175,7 +190,12 @@ function makeLinkClickHandler(sourceUrl: string | null) {
   };
 }
 
-export default function Reader({ onToast }: Props) {
+export default function Reader({ onToast, active = true, onCaptureBusyChange, workspaceSwitch }: Props) {
+  const activeRef = useRef(active);
+  activeRef.current = active;
+  const captureBusyRef = useRef(false);
+  const captureBusyChangeRef = useRef(onCaptureBusyChange);
+  captureBusyChangeRef.current = onCaptureBusyChange;
   const { t, i18n } = useTranslation();
   const qc = useQueryClient();
   const actions = useArticleActions(toast.error);
@@ -197,10 +217,56 @@ export default function Reader({ onToast }: Props) {
     defaultOpenMode === "extracted",
   );
   const [showTranslation, setShowTranslation] = useState(false);
-  // Reading vs. the article's original web page, shown in an in-app iframe.
-  // Sites that set X-Frame-Options / CSP frame-ancestors refuse to load this
-  // way — the in-frame hint points those back to "open in browser".
-  const [viewMode, setViewMode] = useState<"reader" | "web">("reader");
+  // A manual Reading/Web choice wins across articles, feed defaults and restarts.
+  // A fresh install resolves to Web; global/per-feed modes remain remembered
+  // configuration, and URL-less items fall back to Reading without erasing it.
+  const [readerViewPreference, setReaderViewPreference] = useState(loadReaderViewPreference);
+  const [automaticViewMode, setAutomaticViewMode] = useState<{ articleId: number; mode: ReaderViewMode } | null>(null);
+  // AI is a per-article overlay, never a value written over Reading/Web memory.
+  const [formattedArticleId, setFormattedArticleId] = useState<number | null>(null);
+  const [formatLanguage, setFormatLanguage] = useState<AiFormatLanguage>(DEFAULT_FORMAT_LANGUAGE);
+  const [formatJobs, setFormatJobs] = useState<Record<number, AiFormatJob>>({});
+  const formatRunRef = useRef(0);
+  // One claim per native page/run prevents Strict Mode or repeated loaded
+  // events from starting the same capture twice.
+  const formatCaptureClaimRef = useRef<string | null>(null);
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      captureBusyRef.current = false;
+      captureBusyChangeRef.current?.(false);
+    };
+  }, []);
+  const setViewMode = useCallback((mode: ReaderViewMode) => {
+    if (!activeRef.current) return;
+    setFormattedArticleId(null);
+    // Leaving an AI page while its hidden browser is only opening is a cancel,
+    // not an error. A capture already in IPC remains locked until its finally.
+    if (id != null) {
+      setFormatJobs((jobs) => {
+        const job = jobs[id];
+        if (job?.phase !== "opening") return jobs;
+        const next = { ...jobs };
+        delete next[id];
+        return next;
+      });
+    }
+    setReaderViewPreference(mode);
+    saveReaderViewPreference(mode);
+  }, [id]);
+  const [pageViewState, setPageViewState] = useState<PageViewState | null>(null);
+  const [exportOpen, setExportOpen] = useState(false);
+  const pageViewControllerRef = useRef<{
+    requestId: string;
+    articleId: number;
+    originalUrl: string;
+    run: (action: PageViewAction) => void;
+    capture: () => Promise<PageCapture>;
+    sync: () => void;
+  } | null>(null);
+  const [webOpenAttempt, setWebOpenAttempt] = useState(0);
   const [tagPick, setTagPick] = useState<{ x: number; y: number } | null>(null);
   const [ctxMenu, setCtxMenu] = useState<{
     x: number;
@@ -215,6 +281,14 @@ export default function Reader({ onToast }: Props) {
   const [lightbox, setLightbox] = useState<{ srcs: string[]; index: number } | null>(
     null,
   );
+  useEffect(() => {
+    if (active) return;
+    // These may portal outside the hidden RSS pane. Preserve reading/AI state,
+    // but never leave an RSS context menu or lightbox over another workspace.
+    setTagPick(null);
+    setCtxMenu(null);
+    setLightbox(null);
+  }, [active]);
   const [heroBroken, setHeroBroken] = useState(false);
   // data: URL of a hero image recovered through the backend after the webview
   // failed to load it directly (see the body-image retry effect below). A data:
@@ -242,6 +316,15 @@ export default function Reader({ onToast }: Props) {
     enabled: id != null,
   });
   const a: ArticleDetail | undefined = article.data;
+  // Reading a saved local draft is not generation and sends no page to AI.
+  const formattedQuery = useQuery({
+    queryKey: ["ai-formatted", id],
+    queryFn: () => api.getAiFormatted(id as number),
+    enabled: id != null,
+  });
+  const formattedDraft = formattedQuery.data?.articleId === id ? formattedQuery.data : null;
+  const formatJob = id != null ? formatJobs[id] ?? null : null;
+  const formatBusy = formatJob?.phase === "opening" || formatJob?.phase === "capturing" || formatJob?.phase === "formatting";
 
   // Feed list, so the article's source feed can be checked for its per-feed
   // auto-translate flag. Shared cache key with the sidebar — no extra fetch.
@@ -259,6 +342,14 @@ export default function Reader({ onToast }: Props) {
       : undefined;
   const openMode =
     feedOpenMode === undefined ? undefined : feedOpenMode ?? defaultOpenMode;
+  const viewMode = resolveReaderViewMode(
+    readerViewPreference,
+    automaticViewMode?.articleId === a?.id ? automaticViewMode?.mode : openMode,
+    Boolean(a?.url),
+  );
+  const readerTab = readerTabForArticle(viewMode, formattedArticleId, a?.id);
+  const readerTabRef = useRef(readerTab);
+  readerTabRef.current = readerTab;
 
   const readMinutes = useMemo(() => {
     return estimateReadMinutes(bodyPlainText(a?.extractedHtml || a?.contentHtml || ""));
@@ -270,7 +361,22 @@ export default function Reader({ onToast }: Props) {
   useEffect(() => {
     setShowExtracted(useUi.getState().prefs.defaultOpenMode === "extracted");
     setShowTranslation(false);
-    setViewMode("reader");
+    setPageViewState(null);
+    setFormattedArticleId(null);
+    // Opening/capturing belongs to the page that owned the native view. A
+    // model request may continue and save to its originating article, but a
+    // pre-capture run must not survive an article switch.
+    setFormatJobs((jobs) => {
+      let changed = false;
+      const next = { ...jobs };
+      for (const [articleId, job] of Object.entries(jobs)) {
+        if (Number(articleId) !== id && (job.phase === "opening" || job.phase === "capturing")) {
+          delete next[Number(articleId)];
+          changed = true;
+        }
+      }
+      return changed ? next : jobs;
+    });
     setScrolled(false);
     setTagPick(null);
     setHeroBroken(false);
@@ -288,15 +394,22 @@ export default function Reader({ onToast }: Props) {
     if (!a || openMode === undefined || openModeAppliedRef.current === a.id)
       return;
     openModeAppliedRef.current = a.id;
-    if (openMode === "web" && a.url) setViewMode("web");
-    else setShowExtracted(openMode === "extracted");
+    setAutomaticViewMode({ articleId: a.id, mode: openMode === "web" ? "web" : "reader" });
+    if (openMode !== "web" || !a.url) setShowExtracted(openMode === "extracted");
   }, [a, openMode]);
 
   // Drive the native original-page child webview (page_view.rs) while in web
   // mode. It floats above the DOM, so we measure the host rect and keep the
-  // webview aligned to it across window/sidebar resizes. (Switching articles
-  // resets viewMode to "reader" above, so a.url is stable within a session.)
+  // webview aligned to it across window/sidebar resizes. Switching articles
+  // keeps the manual mode and replaces the child view with the new article URL.
   const articleUrl = a?.url ?? null;
+  const currentPageView = pageViewForArticle(pageViewState, a?.id, articleUrl);
+  const currentPageUrl = pageViewExternalUrl(pageViewState, a?.id, articleUrl);
+  const externalArticleUrl = readerTab === "formatted" ? safePageViewUrl(formatJob?.source?.sourceUrl) ?? safePageViewUrl(formattedDraft?.sourceUrl) ?? articleUrl : readerTab === "web" ? currentPageUrl : articleUrl;
+  const webViewOpening = currentPageView?.loading ?? false;
+  const webBanner = pageViewBanner(currentPageView);
+  const nativeFormatActive = readerTab === "formatted" && (formatJob?.phase === "opening" || formatJob?.phase === "capturing");
+  const nativePageNeeded = readerTab === "web" || nativeFormatActive;
   // Anything that floats over the reading area must suspend the page view: the
   // child webview floats above the whole DOM, so it would otherwise occlude a
   // covering modal (subscribe / settings / explore — issue #54), a context
@@ -313,57 +426,330 @@ export default function Reader({ onToast }: Props) {
   const overlayOpenRef = useRef(overlayOpen);
   overlayOpenRef.current = overlayOpen;
 
-  // Webview lifecycle: create on entering web mode (or when the article's URL
-  // changes), destroy on leaving. Bounds track the host across resizes even
-  // while hidden, so re-showing never lands the page at a stale rect.
+  // Webview lifecycle: Web owns a visible page; AI opening/capturing owns the
+  // same native page invisibly. Keeping this lifecycle alive across Web -> AI
+  // lets us capture exactly what the user was viewing instead of reloading it.
   useEffect(() => {
     const host = pageHostRef.current;
-    if (viewMode !== "web" || !articleUrl || !host) return;
+    if (!active || !nativePageNeeded || !articleUrl || !host || !a) return;
 
+    const requestId = nextPageViewRequestId("reader");
     const bounds = () => {
-      const r = host.getBoundingClientRect();
+      // The exclusive ReaderViewOutlet replaces the Web host with the hidden
+      // AI host. Always measure the current ref so the native child survives
+      // that hand-off without retaining the detached element's rectangle.
+      const r = (pageHostRef.current ?? host).getBoundingClientRect();
       return { x: r.left, y: r.top, width: r.width, height: r.height };
     };
     let open = false;
     let cancelled = false;
-    api.openPageView(articleUrl, bounds()).then(
-      () => {
+    let unlisten: UnlistenFn | undefined;
+    let waitTimer: number | undefined;
+    const clearWaitTimer = () => {
+      if (waitTimer !== undefined) window.clearTimeout(waitTimer);
+      waitTimer = undefined;
+    };
+    const armWaitTimer = () => {
+      clearWaitTimer();
+      waitTimer = window.setTimeout(() => {
+        if (!cancelled && activeRef.current) setPageViewState((state) => markPageViewWaiting(state, requestId));
+      }, 20_000);
+    };
+    const beginWaiting = () => {
+      setPageViewState((state) => startPageViewWait(state, requestId));
+      armWaitTimer();
+    };
+    const sync = () => {
+      if (open && !cancelled && activeRef.current) {
+        void enqueuePageView(async () => {
+          if (open && !cancelled && activeRef.current) await api.setPageViewBounds(bounds());
+        }).catch(() => {});
+      }
+    };
+    pageViewControllerRef.current = {
+      requestId, articleId: a.id, originalUrl: articleUrl,
+      capture: () => {
+        // Capture shares the native lifecycle queue, but AI generation does
+        // not. A slow model must never hold up another article's page view.
+        return enqueuePageView(async () => {
+          if (cancelled || !activeRef.current || !open) throw new Error(t("aiFormatted.captureUnavailable"));
+          return api.capturePageView(a.id, requestId);
+        });
+      },
+      run: (action) => {
+        if (cancelled || !activeRef.current || !open) return;
+        beginWaiting();
+        // History/reload use the same queue as close/open. A queued action
+        // cannot accidentally operate on the next article's replacement view.
+        void enqueuePageView(async () => {
+          if (cancelled || !activeRef.current || !open) return;
+          try {
+            if (action === "reload") await api.reloadPageView();
+            else await api.navigatePageViewHistory(action);
+          } catch {
+            if (!cancelled && activeRef.current) {
+              clearWaitTimer();
+              setPageViewState((state) => markPageViewError(state, requestId, "control"));
+            }
+          }
+        });
+      },
+      sync,
+    };
+    setPageViewState(createPageViewState(requestId, a.id, articleUrl));
+    void enqueuePageView(async () => {
+      if (cancelled || !activeRef.current) return;
+      try {
+        // Subscribe before open: the native view may emit loading/loaded
+        // before its IPC command resolves, especially for cached pages.
+        const removeListener = await listen<api.PageViewStatusEvent>("page-view-status", ({ payload }) => {
+          if (cancelled || !activeRef.current || !isPageViewStatusEvent(payload) || payload.requestId !== requestId) return;
+          if ((payload.phase === "loading" || payload.phase === "loaded") && !safePageViewUrl(payload.url)) return;
+          setPageViewState((state) => applyPageViewStatus(state, payload));
+          if (payload.phase === "loading") armWaitTimer();
+          else if (payload.phase === "loaded") clearWaitTimer();
+          // blocked subframes stay silent; downloads may show one dismissible
+          // action, but neither stops/fails the main document's load.
+        });
+        if (cancelled || !activeRef.current) { removeListener(); return; }
+        unlisten = removeListener;
+        armWaitTimer();
+        // A page created for AI is hidden in the same native command, before
+        // it can paint over the formatted surface. Ordinary Web stays visible.
+        const initiallyVisible = readerTabRef.current === "web" && !overlayOpenRef.current;
+        await api.openPageView(articleUrl, bounds(), requestId, initiallyVisible);
         open = true;
-        // If teardown ran while this open was still in flight, the cleanup's
-        // closePageView fired against a not-yet-created webview (a no-op) and
-        // would leave this one orphaned above the DOM — close it now.
-        if (cancelled) {
-          api.closePageView().catch(() => {});
+        if (cancelled || !activeRef.current) {
+          await api.closePageView().catch(() => {});
           return;
         }
-        // Created visible by default; if an overlay is already up (e.g. the AI
-        // drawer was open when web mode was toggled on), hide it at once.
-        if (overlayOpenRef.current) api.setPageViewVisible(false).catch(() => {});
-      },
-      () => {},
-    );
+        // Creation does not mean the webpage finished. Only a matching
+        // loaded event clears loading; a timer merely offers a waiting hint.
+        setPageViewState((state) => markPageViewCreated(state, requestId));
+        sync();
+        await api.setPageViewVisible(readerTabRef.current === "web" && !overlayOpenRef.current).catch(() => {});
+      } catch {
+        clearWaitTimer();
+        unlisten?.();
+        unlisten = undefined;
+        if (!cancelled && activeRef.current) setPageViewState((state) => markPageViewError(state, requestId, "create"));
+        await api.closePageView().catch(() => {});
+      }
+    });
 
+    return () => {
+      cancelled = true;
+      clearWaitTimer();
+      unlisten?.();
+      unlisten = undefined;
+      if (pageViewControllerRef.current?.requestId === requestId) pageViewControllerRef.current = null;
+      void enqueuePageView(() => api.closePageView()).catch(() => {});
+    };
+  }, [active, nativePageNeeded, articleUrl, a?.id, webOpenAttempt]);
+
+  // The DOM host changes when the exclusive outlet moves between Web and AI.
+  // Rebind ResizeObserver to that current host while leaving the native view
+  // itself alive, then keep its rectangle current during pane/window resizing.
+  useEffect(() => {
+    const host = pageHostRef.current;
+    const controller = pageViewControllerRef.current;
+    if (!active || !nativePageNeeded || !host || !controller) return;
     const sync = () => {
-      if (open && !cancelled) api.setPageViewBounds(bounds()).catch(() => {});
+      if (pageViewControllerRef.current === controller) controller.sync();
     };
     const ro = new ResizeObserver(sync);
     ro.observe(host);
     window.addEventListener("resize", sync);
-
+    sync();
     return () => {
-      cancelled = true;
       ro.disconnect();
       window.removeEventListener("resize", sync);
-      api.closePageView().catch(() => {});
     };
-  }, [viewMode, articleUrl]);
+  }, [active, nativePageNeeded, readerTab, formatJob?.runId, articleUrl, a?.id]);
+
+  const runPageViewAction = (action: PageViewAction) => {
+    const controller = pageViewControllerRef.current;
+    if (!activeRef.current || readerTab !== "web" || formatJob?.phase === "capturing" || controller?.articleId !== a?.id || controller?.originalUrl !== articleUrl) return;
+    controller?.run(action);
+  };
 
   // Visibility: toggle the webview as overlays come and go, without reloading.
   // No-op (backend-side) when no webview is open.
   useEffect(() => {
-    if (viewMode !== "web" || !articleUrl) return;
-    api.setPageViewVisible(!overlayOpen).catch(() => {});
-  }, [overlayOpen, viewMode, articleUrl]);
+    if (!active || !nativePageNeeded || !articleUrl) return;
+    const controller = pageViewControllerRef.current;
+    void enqueuePageView(async () => {
+      if (activeRef.current && controller && pageViewControllerRef.current === controller) {
+        await api.setPageViewVisible(readerTabRef.current === "web" && !overlayOpenRef.current);
+      }
+    }).catch(() => {});
+  }, [active, overlayOpen, readerTab, nativePageNeeded, articleUrl]);
+
+  const clearFormatJob = (articleId: number, runId?: number) => {
+    if (!mountedRef.current) return;
+    setFormatJobs((jobs) => {
+      const currentRunId = runId ?? jobs[articleId]?.runId;
+      return currentRunId === undefined ? jobs : settleAiFormatJob(jobs, articleId, currentRunId, null);
+    });
+  };
+
+  const generateFormatted = async (articleId: number, captureId: string, language: AiFormatLanguage, runId: number, source?: AiFormatSource) => {
+    setFormatJobs((jobs) => ({ ...jobs, [articleId]: { runId, phase: "formatting", captureId, error: null, source } }));
+    try {
+      const draft = await api.aiFormatPage(articleId, captureId, language);
+      if (draft.articleId !== articleId || draft.captureId !== captureId) throw new Error(t("aiFormatted.failed"));
+      // Persisted results belong to the originating article even if the user
+      // has moved on. Never change the newly selected article or its tab.
+      await qc.cancelQueries({ queryKey: ["ai-formatted", articleId], exact: true });
+      qc.setQueryData(["ai-formatted", articleId], draft);
+      clearFormatJob(articleId, runId);
+    } catch (cause) {
+      if (!mountedRef.current) return;
+      setFormatJobs((jobs) => settleAiFormatJob(jobs, articleId, runId, errorText(cause)));
+    }
+  };
+
+  const beginFormatPipeline = (articleId: number, sourceUrl: string | null) => {
+    const runId = ++formatRunRef.current;
+    formatCaptureClaimRef.current = null;
+    setFormatJobs((jobs) => ({
+      ...jobs,
+      [articleId]: sourceUrl
+        ? { runId, phase: "opening", captureId: null, error: null }
+        : { runId, phase: "failed", captureId: null, error: t("reader.noOriginalUrl") },
+    }));
+    return runId;
+  };
+
+  const captureAndFormat = async (articleId: number, runId: number, language: AiFormatLanguage) => {
+    if (!activeRef.current || captureBusyRef.current) return;
+    const controller = pageViewControllerRef.current;
+    if (controller?.articleId !== articleId || controller.originalUrl !== articleUrl) {
+      setFormatJobs((jobs) => settleAiFormatJob(jobs, articleId, runId, t("aiFormatted.captureUnavailable")));
+      return;
+    }
+    captureBusyRef.current = true;
+    captureBusyChangeRef.current?.(true);
+    setFormatJobs((jobs) => jobs[articleId]?.runId === runId
+      ? { ...jobs, [articleId]: { ...jobs[articleId], phase: "capturing", captureId: null, error: null } }
+      : jobs);
+    try {
+      const capture = await controller.capture();
+      if (!mountedRef.current || !activeRef.current || !isCurrentCapture(articleId, controller.requestId, useUi.getState().selectedArticleId, pageViewControllerRef.current?.requestId)) {
+        clearFormatJob(articleId, runId);
+        return;
+      }
+      if (capture.articleId !== articleId || !capture.captureId || !capture.text.trim() || !safePageViewUrl(capture.sourceUrl)) throw new Error(t("aiFormatted.captureUnavailable"));
+      // The formatted tab has been visible throughout. Moving to formatting
+      // releases the hidden native view; model work continues independently.
+      void generateFormatted(articleId, capture.captureId, language, runId, {
+        sourceUrl: capture.sourceUrl, sourceTitle: capture.sourceTitle,
+        sourceText: capture.text, capturedAt: capture.capturedAt, warnings: capture.warnings,
+        truncated: capture.truncated, charCount: capture.charCount,
+      });
+    } catch (cause) {
+      if (!mountedRef.current || !activeRef.current || !isCurrentCapture(articleId, controller.requestId, useUi.getState().selectedArticleId, pageViewControllerRef.current?.requestId)) {
+        clearFormatJob(articleId, runId);
+        return;
+      }
+      setFormatJobs((jobs) => settleAiFormatJob(jobs, articleId, runId, errorText(cause)));
+    } finally {
+      captureBusyRef.current = false;
+      captureBusyChangeRef.current?.(false);
+    }
+  };
+
+  // Once the user has selected AI formatted, wait for the local saved-draft
+  // lookup to settle. A saved document wins without reopening or re-spending;
+  // a confirmed empty result starts the hidden Web -> capture -> AI pipeline.
+  useEffect(() => {
+    if (!active || readerTab !== "formatted" || !a) return;
+    if (formattedQuery.isFetching) return;
+    if (formattedQuery.isError) {
+      if (formatJob?.phase === "opening") clearFormatJob(a.id, formatJob.runId);
+      return;
+    }
+    if (formattedDraft) {
+      if (formatJob?.phase === "opening") clearFormatJob(a.id, formatJob.runId);
+      return;
+    }
+    if (!formatJob && articleUrl) beginFormatPipeline(a.id, articleUrl);
+    // beginFormatPipeline deliberately creates the missing job; subsequent
+    // renders stop here. Language cannot change while the job is busy.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, readerTab, a?.id, articleUrl, formattedQuery.isFetching, formattedQuery.isError, formattedDraft?.articleId, formatJob?.runId, formatJob?.phase]);
+
+  // A native creation/control failure is terminal for this automatic run. A
+  // page that still has no Finished event ten seconds after the normal 20s
+  // waiting hint also becomes recoverable via the single Retry action.
+  useEffect(() => {
+    if (readerTab !== "formatted" || formatJob?.phase !== "opening" || !currentPageView?.error || !a) return;
+    setFormatJobs((jobs) => settleAiFormatJob(jobs, a.id, formatJob.runId, t("aiFormatted.captureUnavailable")));
+  }, [readerTab, formatJob?.phase, formatJob?.runId, currentPageView?.error, a?.id, t]);
+  useEffect(() => {
+    if (readerTab !== "formatted" || formatJob?.phase !== "opening" || !currentPageView?.waiting || !a) return;
+    const articleId = a.id;
+    const runId = formatJob.runId;
+    const timer = window.setTimeout(() => {
+      setFormatJobs((jobs) => settleAiFormatJob(jobs, articleId, runId, t("aiFormatted.captureUnavailable")));
+    }, 10_000);
+    return () => window.clearTimeout(timer);
+  }, [readerTab, formatJob?.phase, formatJob?.runId, currentPageView?.waiting, a?.id, t]);
+
+  // Capture only after the exact native instance reports Finished. A short
+  // quiet period lets dynamic article bodies settle; any new loading event
+  // cancels the timer. The claim is taken before IPC to guarantee one capture.
+  useEffect(() => {
+    if (!active || readerTab !== "formatted" || formatJob?.phase !== "opening" || !a || formattedQuery.isFetching || formattedQuery.isError || formattedDraft) return;
+    const controller = pageViewControllerRef.current;
+    if (!currentPageView?.created || currentPageView.loading || currentPageView.error || controller?.articleId !== a.id || controller.originalUrl !== articleUrl || controller.requestId !== currentPageView.requestId) return;
+    const articleId = a.id;
+    const runId = formatJob.runId;
+    const claim = `${articleId}:${runId}:${controller.requestId}`;
+    if (formatCaptureClaimRef.current === claim) return;
+    const timer = window.setTimeout(() => {
+      const liveController = pageViewControllerRef.current;
+      if (!activeRef.current || useUi.getState().selectedArticleId !== articleId || readerTabRef.current !== "formatted" || liveController !== controller || formatCaptureClaimRef.current === claim) return;
+      formatCaptureClaimRef.current = claim;
+      void captureAndFormat(articleId, runId, formatLanguage);
+    }, 700);
+    return () => window.clearTimeout(timer);
+    // captureAndFormat is intentionally guarded by the run/request claim.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, readerTab, formatJob?.phase, formatJob?.runId, a?.id, articleUrl, formattedQuery.isFetching, formattedQuery.isError, formattedDraft?.articleId, currentPageView?.requestId, currentPageView?.created, currentPageView?.loading, currentPageView?.error, formatLanguage]);
+
+  const openFormatted = () => {
+    if (!activeRef.current || !a) return;
+    // Hide an already-visible native page immediately; the lifecycle remains
+    // alive when a new opening job is batched below, so its loaded DOM can be
+    // captured without a reload or a flash over the AI surface.
+    if (readerTab === "web" && pageViewControllerRef.current?.articleId === a.id) {
+      void api.setPageViewVisible(false).catch(() => {});
+    }
+    setFormattedArticleId(a.id);
+    if (articleUrl && !formattedDraft && !formatJob && !formattedQuery.isError) {
+      beginFormatPipeline(a.id, articleUrl);
+    }
+  };
+
+  const reformat = () => {
+    if (!activeRef.current || !a || formatBusy) return;
+    beginFormatPipeline(a.id, articleUrl);
+  };
+
+  const retryFormatted = () => {
+    if (!activeRef.current || !a || formatBusy) return;
+    if (formattedQuery.isError && !formatJob) {
+      void formattedQuery.refetch();
+      return;
+    }
+    if (formatJob?.phase === "failed" && formatJob.captureId) {
+      const runId = ++formatRunRef.current;
+      void generateFormatted(a.id, formatJob.captureId, formatLanguage, runId, formatJob.source);
+      return;
+    }
+    beginFormatPipeline(a.id, articleUrl);
+  };
 
   // Recover article-body images the webview fails to load, then hide the
   // stragglers. The webview sends no Referer (see sanitize.rs) — right for
@@ -430,7 +816,7 @@ export default function Reader({ onToast }: Props) {
       timers.forEach(window.clearTimeout);
       watched.forEach((img) => img.removeEventListener("error", onError));
     };
-  }, [a?.id, a?.url, showExtracted, a?.extractedHtml, showTranslation, a?.translatedHtml]);
+  }, [readerTab, a?.id, a?.url, showExtracted, a?.extractedHtml, showTranslation, a?.translatedHtml]);
 
   // Same proactive proxy for the reader hero. These hosts need a Referer that
   // only the Rust fetch path can provide; waiting for `onError` leaves a broken
@@ -456,9 +842,9 @@ export default function Reader({ onToast }: Props) {
 
   // Mark as read once when an unread article is opened (if the user opted in).
   useEffect(() => {
-    if (a && !a.isRead && markReadOnOpen) actions.setRead(a.id, true);
+    if (active && a && !a.isRead && markReadOnOpen) actions.setRead(a.id, true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [a?.id]);
+  }, [active, a?.id]);
 
   // The extracted article id travels as the mutation variable, not via the
   // `a` closure: extraction is async and the user can switch articles before
@@ -528,6 +914,13 @@ export default function Reader({ onToast }: Props) {
       (translating ? `<p><em>${t("reader.translating")}</em></p>` : baseBody)
     : baseBody;
   const displayBody = proxiedBody?.source === body ? proxiedBody.html : body;
+  // A short body is a clue, not proof of truncation. Keep the copy tentative
+  // and both follow-up actions manual; do not auto-navigate on this heuristic.
+  const mayOnlyHaveSummary = useMemo(() => {
+    if (!a?.url || a.sourceType !== "rss" || showTranslation) return false;
+    if (showExtracted && a.extractedHtml) return false;
+    return bodyPlainText(a.contentHtml || "").trim().length < 800;
+  }, [a?.url, a?.sourceType, a?.contentHtml, a?.extractedHtml, showExtracted, showTranslation]);
   // Whether the body already opens with its own image/video — if so, the hero
   // thumbnail is suppressed to avoid a redundant top image (issue #97).
   const leadsWithMedia = useMemo(() => bodyLeadsWithMedia(baseBody), [baseBody]);
@@ -599,7 +992,7 @@ export default function Reader({ onToast }: Props) {
   // article — so a failed fetch isn't retried on every re-render.
   const autoExtractedRef = useRef<number | null>(null);
   useEffect(() => {
-    if (openMode !== "extracted" || !a || !a.url || a.extractedHtml) return;
+    if (!active || openMode !== "extracted" || !a || !a.url || a.extractedHtml) return;
     if (autoExtractedRef.current === a.id || extract.isPending) return;
     // Measure the *decoded* text, not the raw markup. A bare `<[^>]+>` tag
     // strip leaves HTML entities intact, so an entity-heavy stub
@@ -617,7 +1010,7 @@ export default function Reader({ onToast }: Props) {
     autoExtractedRef.current = a.id;
     extract.mutate(a.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [a?.id, a?.extractedHtml, openMode, feedOpenMode]);
+  }, [active, a?.id, a?.extractedHtml, openMode, feedOpenMode]);
 
   // Per-feed auto-translate: when the article's source feed opts in, translate
   // it into the configured target the moment it opens. Fires once per article
@@ -628,7 +1021,7 @@ export default function Reader({ onToast }: Props) {
   // the reader flip back to the original at any time.
   const autoTranslatedRef = useRef<number | null>(null);
   useEffect(() => {
-    if (!autoTranslateFeed || !a || !canTranslate) return;
+    if (!active || !autoTranslateFeed || !a || !canTranslate) return;
     if (autoTranslatedRef.current === a.id) return;
     autoTranslatedRef.current = a.id;
     // A fresh cached translation for the target language needs no new job;
@@ -638,7 +1031,7 @@ export default function Reader({ onToast }: Props) {
     }
     setShowTranslation(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [a?.id, autoTranslateFeed, canTranslate, targetLang, engine]);
+  }, [active, a?.id, autoTranslateFeed, canTranslate, targetLang, engine]);
 
   // Mark the current article read once its foot is reached. Also fires for an
   // article short enough to need no scrolling at all (`scrollHeight` already
@@ -647,13 +1040,13 @@ export default function Reader({ onToast }: Props) {
   // read despite "mark read on scroll" being on.
   const markReadIfAtFoot = useCallback(() => {
     const el = scrollRef.current;
-    if (!el || !markReadOnScroll || !a || a.isRead) return;
+    if (!activeRef.current || !el || !markReadOnScroll || !a || a.isRead) return;
     if (scrollMarkedRef.current === a.id) return;
     if (el.scrollHeight - el.scrollTop - el.clientHeight < 120) {
       scrollMarkedRef.current = a.id;
       actions.setRead(a.id, true);
     }
-  }, [markReadOnScroll, a, actions]);
+  }, [active, markReadOnScroll, a, actions]);
 
   const onScroll = () => {
     const el = scrollRef.current;
@@ -742,7 +1135,7 @@ export default function Reader({ onToast }: Props) {
     };
     return (
       <div className="reader" role="main">
-        {isMac && <div className="reader-toolbar" data-tauri-drag-region />}
+        {(isMac || (focusMode && workspaceSwitch)) && <div className="reader-toolbar" data-tauri-drag-region>{focusMode && workspaceSwitch}</div>}
         <div className="empty" style={{ flex: 1 }}>
           <div className="glyph">
             <Icon name="rss" size={22} />
@@ -763,7 +1156,7 @@ export default function Reader({ onToast }: Props) {
   if (!a) {
     return (
       <div className="reader" role="main">
-        {isMac && <div className="reader-toolbar" data-tauri-drag-region />}
+        {(isMac || (focusMode && workspaceSwitch)) && <div className="reader-toolbar" data-tauri-drag-region>{focusMode && workspaceSwitch}</div>}
         {article.isError ? (
           <div className="empty" style={{ flex: 1 }}>
             <div className="glyph">
@@ -826,6 +1219,7 @@ export default function Reader({ onToast }: Props) {
         className={`reader-toolbar ${scrolled ? "scrolled" : ""}`}
         {...(isMac && { "data-tauri-drag-region": true })}
       >
+        {focusMode && workspaceSwitch}
         <button
           className={`tb-btn ${a.isStarred ? "on" : ""}`}
           onClick={() => actions.setStarred(a.id, !a.isStarred)}
@@ -898,54 +1292,116 @@ export default function Reader({ onToast }: Props) {
           <Icon name="globe" size={16} />
         </button>
         <HighlightLayer
-          // Keyed by article id so the export menu / popovers reset cleanly
-          // when the reader switches articles.
-          key={a.id}
+          // A mode round-trip replaces the body DOM even for the same article;
+          // remount to bind highlights to the new body, keeping export available.
+          key={`highlights-${a.id}-${readerTab}`}
           articleId={a.id}
           bodyRef={bodyRef}
           bodyVersion={displayBody}
         />
         <div className="tb-btn spacer" />
-        {a.url && (
+        <div className="reader-view-switch" role="group" aria-label={t("reader.viewMode")}>
           <button
-            className={`tb-btn ${viewMode === "web" ? "on" : ""}`}
-            title={t("reader.tbWebView")}
-            aria-label={t("reader.tbWebView")}
-            aria-pressed={viewMode === "web"}
-            onClick={() => setViewMode((v) => (v === "web" ? "reader" : "web"))}
+            type="button"
+            className={readerTab === "reader" ? "active" : ""}
+            title={t("reader.readingMode")}
+            aria-pressed={readerTab === "reader"}
+            disabled={formatJob?.phase === "capturing"}
+            onClick={() => setViewMode("reader")}
           >
-            <Icon name="eye" size={16} />
+            <Icon name="text" size={13} />
+            {t("reader.readingMode")}
           </button>
-        )}
+          <button
+            type="button"
+            className={readerTab === "web" ? "active" : ""}
+            title={a.url ? t("reader.tbWebView") : t("reader.noOriginalUrl")}
+            aria-label={t("reader.tbWebView")}
+            aria-pressed={readerTab === "web"}
+            disabled={!a.url || formatJob?.phase === "capturing"}
+            onClick={() => setViewMode("web")}
+          >
+            <Icon name="eye" size={13} />
+            {t("reader.webMode")}
+          </button>
+          <button
+            type="button"
+            className={readerTab === "formatted" ? "active" : ""}
+            title={t("aiFormatted.tabHint")}
+            aria-pressed={readerTab === "formatted"}
+            disabled={formatJob?.phase === "capturing"}
+            onClick={openFormatted}
+          >
+            <Icon name="sparkle" size={13}/>
+            {t("aiFormatted.tab")}
+          </button>
+        </div>
+        <button type="button" className={`tb-btn ${exportOpen ? "on" : ""}`} title="导出图文资料包（Markdown + 图片）" aria-label="导出图文资料包" aria-expanded={exportOpen} onClick={() => setExportOpen((open) => !open)}><Icon name="arrow-down" size={16}/></button>
         {a.url && (
           <button
             className="tb-btn"
             title={t("reader.tbOpenInBrowser")}
             aria-label={t("reader.tbOpenInBrowser")}
-            onClick={() => openUrl(a.url!).catch(() => {})}
+            disabled={!externalArticleUrl}
+            onClick={() => externalArticleUrl && openUrl(externalArticleUrl).catch(reportError)}
           >
             <Icon name="open" size={16} />
           </button>
         )}
       </div>
 
-      {viewMode === "web" && a.url ? (
+      {exportOpen && <ArticleExportPanel key={`${a.id}:${readerTab}`} articleId={a.id} source={readerTab === "reader" ? "reading" : readerTab} requestId={pageViewControllerRef.current?.articleId === a.id ? pageViewControllerRef.current.requestId : null} captureId={formattedDraft?.articleId === a.id ? formattedDraft.captureId : null} webReady={!!currentPageView?.created && !currentPageView.loading && !currentPageView.error} onClose={() => setExportOpen(false)} onToast={onToast}/>}
+
+      <ReaderViewOutlet
+        key={readerViewKey(a.id, readerTab)}
+        articleId={a.id}
+        mode={readerTab}
+        renderFormatted={() => (
+        <div className="ai-formatted-stage">
+          <AIFormatted
+            articleId={a.id}
+            articleTitle={a.title}
+            hasUrl={Boolean(a.url)}
+            draft={formattedDraft}
+            loading={formattedQuery.isLoading}
+            loadError={formattedQuery.isError ? errorText(formattedQuery.error) : null}
+            job={formatJob}
+            language={formatLanguage}
+            onLanguageChange={setFormatLanguage}
+            onReformat={reformat}
+            onRetry={retryFormatted}
+            onToast={onToast}
+          />
+          {nativeFormatActive && <div className="ai-format-page-host" ref={pageHostRef} aria-hidden="true"/>}
+        </div>
+      )}
+        renderWeb={() => (
         <div className="reader-webview">
           <div className="reader-webview-bar">
-            <span className="reader-webview-url">{a.url}</span>
-            <button
-              className="reader-webview-open"
-              onClick={() => openUrl(a.url!).catch(() => {})}
-            >
-              {t("reader.tbOpenInBrowser")}
-            </button>
+            <div className="reader-web-navigation" role="group" aria-label={t("reader.webNavigation")}>
+              <button type="button" title={t("reader.webBack")} aria-label={t("reader.webBack")} disabled={!currentPageView?.created || formatJob?.phase === "capturing"} onClick={() => runPageViewAction("back")}><Icon name="chevron-right" size={15} className="reader-web-back-icon"/></button>
+              <button type="button" title={t("reader.webForward")} aria-label={t("reader.webForward")} disabled={!currentPageView?.created || formatJob?.phase === "capturing"} onClick={() => runPageViewAction("forward")}><Icon name="chevron-right" size={15}/></button>
+              <button type="button" title={t("reader.webReload")} aria-label={t("reader.webReload")} disabled={formatJob?.phase === "capturing" || (!currentPageView?.created && webViewOpening && !currentPageView?.waiting)} onClick={() => currentPageView?.created ? runPageViewAction("reload") : setWebOpenAttempt((attempt) => attempt + 1)}><Icon name="refresh" size={14}/></button>
+            </div>
+            <span className="reader-webview-url" title={currentPageUrl ?? undefined}>{currentPageUrl ?? t("reader.webUnsafeUrl")}</span>
+            {webViewOpening && <span className="reader-web-loading" role="status" title={currentPageView?.waiting ? t("reader.webWaitingHint") : t("common.loading")} aria-label={currentPageView?.waiting ? t("reader.webWaitingShort") : t("common.loading")}><span className="reader-web-spinner" aria-hidden="true"/>{currentPageView?.waiting && <span>{t("reader.webWaitingShort")}</span>}</span>}
           </div>
+          {webBanner && currentPageView && <div className="reader-web-notice" role={webBanner === "download" ? "status" : "alert"}>
+            <span>{t(webBanner === "download" ? "reader.webDownloadHint" : webBanner === "create" ? "reader.webviewUnavailable" : "reader.webControlUnavailable")}</span>
+            {webBanner === "download" && currentPageView.noticeUrl && <button type="button" onClick={() => {
+              const target = safePageViewUrl(currentPageView.noticeUrl);
+              if (target) void openUrl(target).catch(reportError);
+            }}>{t("reader.webOpenDownload")}</button>}
+            {webBanner !== "download" && <button type="button" onClick={() => setWebOpenAttempt((attempt) => attempt + 1)}>{t("reader.retryWebpage")}</button>}
+            <button type="button" className="reader-web-notice-close" aria-label={t("common.close")} title={t("common.close")} onClick={() => setPageViewState((state) => dismissPageViewNotice(state, currentPageView.requestId))}><Icon name="x" size={14}/></button>
+          </div>}
           {/* The native child webview (page_view.rs) floats over this host —
               it's not in the DOM, so this div only reserves the space. The
               effect below measures it and positions the webview to match. */}
-          <div className="reader-webview-host" ref={pageHostRef} />
+          <div className="reader-webview-host" ref={pageHostRef} aria-busy={webViewOpening}/>
         </div>
-      ) : (
+      )}
+        renderReading={() => (
       <div
         className="reader-scroll"
         ref={scrollRef}
@@ -999,6 +1455,25 @@ export default function Reader({ onToast }: Props) {
               </>
             )}
           </div>
+
+          {mayOnlyHaveSummary && (
+            <aside className="reader-summary-hint">
+              <p>{t("reader.summaryOnlyHint")}</p>
+              <div className="reader-summary-actions">
+                <button type="button" onClick={() => setViewMode("web")}>
+                  <Icon name="eye" size={14} />
+                  {t("reader.readOriginalHere")}
+                </button>
+                <button
+                  type="button"
+                  disabled={extract.isPending}
+                  onClick={() => hasExtracted ? setShowExtracted(true) : extract.mutate(a.id)}
+                >
+                  {extract.isPending ? t("reader.extractingFullText") : hasExtracted ? t("reader.showFullText") : t("reader.tbExtractFullText")}
+                </button>
+              </div>
+            </aside>
+          )}
 
           {a.tags.length > 0 && (
             <div className="article-tags">
@@ -1179,9 +1654,9 @@ export default function Reader({ onToast }: Props) {
           />
         </article>
       </div>
-      )}
+      )}/>
 
-      {lightbox && (
+      {active && lightbox && (
         <Lightbox
           srcs={lightbox.srcs}
           index={lightbox.index}
@@ -1193,13 +1668,13 @@ export default function Reader({ onToast }: Props) {
         // Keyed by article id so switching articles remounts the drawer:
         // its `text` state then re-initialises from the new article's
         // summary, rather than carrying the previous one's across.
-        key={a.id}
+        key={readerSummaryKey(a.id)}
         open={aiOpen}
         article={a}
         onClose={() => setAiOpen(false)}
       />
 
-      {tagPick && (
+      {active && tagPick && (
         <TagPicker
           articleId={a.id}
           attached={a.tags.map((tg) => tg.id)}
@@ -1209,7 +1684,7 @@ export default function Reader({ onToast }: Props) {
         />
       )}
 
-      {ctxMenu && (
+      {active && ctxMenu && (
         <ContextMenu
           x={ctxMenu.x}
           y={ctxMenu.y}

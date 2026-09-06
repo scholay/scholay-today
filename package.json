@@ -1,13 +1,15 @@
 {
   "name": "papr",
   "private": true,
-  "version": "0.15.0",
+  "version": "0.16.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
+    "prepare:mcp": "node scripts/prepare-mcp.mjs",
+    "build:desktop": "node scripts/build-desktop.mjs",
     "test": "vitest run"
   },
   "dependencies": {

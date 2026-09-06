@@ -1,7 +1,7 @@
 [package]
 name = "papr"
-version = "0.15.0"
-description = "Papr — a modern RSS reader"
+version = "0.16.0"
+description = "scholay tody — a local-first RSS and trends reader"
 authors = ["you"]
 edition = "2021"
 # Disable binary auto-discovery so Cargo does not also infer a `papr` binary
@@ -16,14 +16,22 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 
 # Distinct binary name so the desktop app's cargo output (`papr-desktop`) does
 # not collide with the agent CLI's `papr` binary in the shared workspace target
-# dir. The bundled product is still "Papr" (see tauri.conf.json productName /
-# mainBinaryName); only the intermediate cargo binary name changes.
+# dir. The bundled product is "scholay tody" (tauri.conf.json productName);
+# the binary and package names stay stable for existing local tooling.
 [[bin]]
 name = "papr-desktop"
 path = "src/main.rs"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
+
+[features]
+# Synthetic WebView2 fixture executable only; not enabled in shipped builds.
+windows-smoke = []
+
+[[example]]
+name = "windows-smoke"
+required-features = ["windows-smoke"]
 
 [dependencies]
 # `unstable` unlocks the child-webview API (Window::add_child) used by the
@@ -49,6 +57,7 @@ serde_json = "1"
 # The UI-free core: SQLite data layer, ingestion building blocks, sanitization.
 # Shared verbatim with the agent CLI so both link the same data code.
 papr-core = { path = "../crates/papr-core" }
+scholay-local-ipc = { path = "../crates/scholay-local-ipc" }
 
 # data layer
 rusqlite = { version = "0.32", features = ["bundled", "functions"] }
@@ -56,6 +65,9 @@ rusqlite_migration = "1"
 
 # ingestion
 feed-rs = "2"
+# Already used by feed-rs; Google Trends' namespaced item extensions contain
+# distinct news URLs whereas all standard item links point at the same feed.
+quick-xml = "=0.37.5"
 reqwest = { version = "0.12", features = ["gzip", "brotli", "json"] }
 tokio = { version = "1", features = ["full"] }
 scraper = "0.21"
@@ -90,12 +102,17 @@ chrono = { version = "0.4", features = ["serde"] }
 anyhow = "1"
 thiserror = "2"
 log = "0.4"
+zip = { version = "=4.6.1", default-features = false }
+sha2 = "0.10"
+uuid = { version = "1", features = ["v4"] }
 
 # macOS-only: used in setup() to turn off the WKWebview's opaque white backing
 # (wry only does this under its `transparent` feature, which we don't enable),
 # so a live window resize stops flashing white. Versions track what tauri/wry
 # already pull in, keeping a single objc2 in the tree.
 [target.'cfg(target_os = "macos")'.dependencies]
+security-framework = "=3.7.0" # native Keychain for explicitly configured hot-board API tokens
+block2 = "=0.6.2" # already locked by wry; native read-only page capture completion
 objc2 = "0.6"
 objc2-foundation = "0.3"
 # Typed handles to the WKWebView / NSWindow / NSColor we repaint per theme to
@@ -103,3 +120,7 @@ objc2-foundation = "0.3"
 # objc2 to keep a single copy in the tree.
 objc2-web-kit = { version = "0.3", features = ["WKWebView"] }
 objc2-app-kit = { version = "0.3", features = ["NSColor", "NSWindow", "NSView", "NSResponder"] }
+
+[target.'cfg(windows)'.dependencies]
+webview2-com = "=0.38.2"
+windows = { version = "=0.61.3", features = ["Win32_Security_Credentials", "Win32_Foundation"] }

@@ -1,175 +1,36 @@
-name: Release
-
+name: Windows release draft
 on:
   push:
-    tags:
-      - "v*"
-  workflow_dispatch:
-
+    tags: ['v*']
+permissions:
+  contents: write
 jobs:
   release:
-    permissions:
-      contents: write
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: macos-latest
-            args: "--target aarch64-apple-darwin"
-            cli_target: aarch64-apple-darwin
-          - platform: macos-latest
-            args: "--target x86_64-apple-darwin"
-            cli_target: x86_64-apple-darwin
-          - platform: ubuntu-22.04
-            args: ""
-            cli_target: x86_64-unknown-linux-gnu
-          - platform: windows-latest
-            args: ""
-            cli_target: x86_64-pc-windows-msvc
-
-    runs-on: ${{ matrix.platform }}
+    runs-on: windows-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Linux dependencies
-        if: matrix.platform == 'ubuntu-22.04'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v4
         with:
-          version: 9
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
+          version: 9.15.9
+      - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: pnpm
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
-
-      - name: Cache Rust build
-        uses: swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Build and release
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Updater signing — tauri-action signs each bundle with this key and
-          # emits the latest.json the in-app updater polls. Must match the
-          # pubkey baked into tauri.conf.json.
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # macOS code signing — tauri-action imports this cert into a
-          # throwaway keychain. Empty on Linux/Windows runners, where these
-          # are simply ignored.
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
-          # Notarization — required for Developer ID builds to pass Gatekeeper.
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        with:
-          tagName: ${{ github.ref_name }}
-          releaseName: "Papr ${{ github.ref_name }}"
-          releaseBody: "See the assets below to download and install this version."
-          releaseDraft: true
-          prerelease: false
-          args: ${{ matrix.args }}
-
-      # ---------------------------------------------------------------------
-      # papr CLI — built from the same workspace, signed/notarized on macOS,
-      # and uploaded to the same draft release tauri-action just created.
-      # ---------------------------------------------------------------------
-      - name: Add Rust target for the CLI
-        run: rustup target add ${{ matrix.cli_target }}
-
-      - name: Build papr CLI
-        run: cargo build --release -p papr-cli --target ${{ matrix.cli_target }}
-
-      - name: Sign & notarize papr CLI (macOS)
-        if: matrix.platform == 'macos-latest'
-        env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: |
-          set -euo pipefail
-          BIN="target/${{ matrix.cli_target }}/release/papr"
-
-          # tauri-action tears down its own keychain after its step, so stand up
-          # a fresh one to sign the bare CLI binary with the Developer ID cert.
-          KEYCHAIN="$RUNNER_TEMP/papr-cli.keychain-db"
-          CERT_PATH="$RUNNER_TEMP/cert.p12"
-          # Scrub the decoded cert + temp keychain on any exit path.
-          cleanup() {
-            security delete-keychain "$KEYCHAIN" >/dev/null 2>&1 || true
-            rm -f "$CERT_PATH" "$RUNNER_TEMP/papr-cli.zip"
-          }
-          trap cleanup EXIT
-          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
-          security set-keychain-settings -lut 21600 "$KEYCHAIN"
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
-          echo "$APPLE_CERTIFICATE" | base64 --decode > "$CERT_PATH"
-          security import "$CERT_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" \
-            -A -t cert -f pkcs12 -k "$KEYCHAIN"
-          security set-key-partition-list -S apple-tool:,apple:,codesign: \
-            -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
-          security list-keychains -d user -s "$KEYCHAIN" login.keychain
-
-          # Hardened runtime + secure timestamp, same posture as the app bundle.
-          codesign --force --options runtime --timestamp \
-            --sign "$APPLE_SIGNING_IDENTITY" "$BIN"
-          codesign --verify --strict --verbose=2 "$BIN"
-
-          # Notarize. A bare executable can't be stapled (stapling needs an
-          # app/dmg/pkg container), so we submit a zip of the binary; the ticket
-          # binds to the code signature's cdhash and Gatekeeper checks it online.
-          ditto -c -k "$BIN" "$RUNNER_TEMP/papr-cli.zip"
-          xcrun notarytool submit "$RUNNER_TEMP/papr-cli.zip" \
-            --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" \
-            --team-id "$APPLE_TEAM_ID" --wait
-
-      - name: Package CLI (Unix)
-        if: matrix.platform != 'windows-latest'
-        run: |
-          set -euo pipefail
-          tar -czf "papr-${{ matrix.cli_target }}.tar.gz" \
-            -C "target/${{ matrix.cli_target }}/release" papr
-
-      - name: Package CLI (Windows)
-        if: matrix.platform == 'windows-latest'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+      - run: pnpm prepare:mcp
+      - run: cargo test --workspace --locked
+      - run: cargo run --locked -p papr --features windows-smoke --example windows-smoke
+      - run: pnpm build:desktop
+      - name: Create draft for maintainer review
         shell: pwsh
-        run: |
-          Compress-Archive -Path "target/${{ matrix.cli_target }}/release/papr.exe" `
-            -DestinationPath "papr-${{ matrix.cli_target }}.zip" -Force
-
-      - name: Upload CLI to the release
-        shell: bash
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Passed through env, not interpolated into the script, so a crafted
-          # tag name can't break out into shell syntax (template injection).
-          RELEASE_TAG: ${{ github.ref_name }}
-          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          set -euo pipefail
-          # Exactly one of .tar.gz (Unix) / .zip (Windows) exists for this target.
-          asset=$(echo papr-${{ matrix.cli_target }}.*)
-          gh release upload "$RELEASE_TAG" "$asset" --clobber --repo "$GH_REPO"
+          $Installer = (Get-ChildItem target/release/bundle/nsis/*.exe).FullName
+          if (-not $Installer) { throw 'No installer was produced' }
+          Get-FileHash $Installer -Algorithm SHA256 | Format-Table -AutoSize | Out-String | Set-Content SHA256SUMS.txt
+          gh release create $env:GITHUB_REF_NAME $Installer SHA256SUMS.txt --draft --generate-notes --title "scholay tody $env:GITHUB_REF_NAME"

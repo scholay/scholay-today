@@ -4,6 +4,7 @@ import { invoke, Channel } from "@tauri-apps/api/core";
 import { imageBytes, type ImageBytesResponse } from "./lib/imageBytes";
 import type {
   AiEvent,
+  AiFormattedDraft,
   ArticleDetail,
   ArticlePreviewTranslation,
   ArticleQuery,
@@ -12,8 +13,7 @@ import type {
   Feed,
   Folder,
   Highlight,
-  NewsletterInput,
-  NewsletterSource,
+  PageCapture,
   RefreshProgress,
   Rule,
   RuleAction,
@@ -22,6 +22,7 @@ import type {
   SmartCounts,
   Tag,
   TranslateEvent,
+  WechatConnectorStatus,
 } from "./types";
 
 // ── folders ──
@@ -46,6 +47,10 @@ export const fetchImage = (url: string, pageUrl?: string | null) =>
 
 // ── feeds ──
 export const listFeeds = () => invoke<Feed[]>("list_feeds");
+/** Fixed-loopback, read-only reachability check for the optional WechRss
+ *  helper. It never returns or stores authentication data. */
+export const wechatConnectorStatus = () =>
+  invoke<WechatConnectorStatus>("wechat_connector_status");
 export const addFeed = (url: string, folderId: number | null) =>
   invoke<Feed>("add_feed", { url, folderId });
 /**
@@ -321,14 +326,6 @@ export const setHighlightColor = (id: number, color: string) =>
 export const deleteHighlight = (id: number) =>
   invoke<void>("delete_highlight", { id });
 
-// ── newsletter sources (IMAP-polled email newsletters) ──
-export const addNewsletterSource = (input: NewsletterInput) =>
-  invoke<Feed>("add_newsletter_source", { input });
-export const listNewsletterSources = () =>
-  invoke<NewsletterSource[]>("list_newsletter_sources");
-export const removeNewsletterSource = (feedId: number) =>
-  invoke<void>("remove_newsletter_source", { feedId });
-
 // ── in-app original-page view (issue #49) ──
 // A native child webview overlaid on the reading area. Bounds are logical
 // (CSS) pixels relative to the window content top-left — i.e. what
@@ -339,10 +336,30 @@ export interface PageViewBounds {
   width: number;
   height: number;
 }
-export const openPageView = (url: string, b: PageViewBounds) =>
-  invoke<void>("open_page_view", { url, ...b });
+export type { PageViewStatusEvent } from "./lib/pageViewState";
+/** Resolves when the native view is created, not when its webpage finishes loading.
+ *  Hidden creation lets a capture pipeline load the real page without briefly
+ *  flashing the native child above the app UI. Ordinary readers stay visible. */
+export const openPageView = (
+  url: string,
+  b: PageViewBounds,
+  requestId: string,
+  visible = true,
+) => invoke<void>("open_page_view", { url, ...b, requestId, visible });
 export const setPageViewBounds = (b: PageViewBounds) =>
   invoke<void>("set_page_view_bounds", { ...b });
 export const setPageViewVisible = (visible: boolean) =>
   invoke<void>("set_page_view_visible", { visible });
 export const closePageView = () => invoke<void>("close_page_view");
+export const navigatePageViewHistory = (direction: "back" | "forward") =>
+  invoke<void>("page_view_navigate_history", { direction });
+export const reloadPageView = () => invoke<void>("page_view_reload");
+
+// Capture is local and explicit. Only aiFormatPage sends the captured page to
+// the configured AI provider; reading a saved draft never starts generation.
+export const capturePageView = (articleId: number, requestId: string) =>
+  invoke<PageCapture>("capture_page_view", { articleId, requestId });
+export const getAiFormatted = (articleId: number) =>
+  invoke<AiFormattedDraft | null>("get_ai_formatted", { articleId });
+export const aiFormatPage = (articleId: number, captureId: string, language: "zh" | "en" | "ja" = "zh") =>
+  invoke<AiFormattedDraft>("ai_format_page", { articleId, captureId, language });

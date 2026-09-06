@@ -15,8 +15,8 @@ use std::time::Duration;
 use tauri::{ipc::Channel, AppHandle, Emitter, Manager};
 
 // Re-exported so existing callers (`commands`, `tray`) keep referring to
-// `scheduler::RefreshScope` / `scheduler::NEWSLETTER_POLL_TIMEOUT_SECS`.
-pub use refresh::{RefreshScope, NEWSLETTER_POLL_TIMEOUT_SECS};
+// `scheduler::RefreshScope`.
+pub use refresh::RefreshScope;
 
 /// Refresh feeds selected by `scope`, streaming per-feed progress over
 /// `progress` when provided, then running the desktop-only tail: emit

@@ -9,6 +9,7 @@ export default defineConfig({
     include: [
       "extension/test/**/*.test.{js,ts}",
       "src/lib/**/*.test.ts",
+      "src/hot/**/*.test.ts",
     ],
     environment: "node",
   },
