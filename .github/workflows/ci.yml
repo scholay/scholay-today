@@ -46,7 +46,7 @@ jobs:
           New-Item -ItemType Directory -Force artifacts | Out-Null
           Copy-Item target/release/bundle/nsis/*.exe artifacts/
           Copy-Item target/release/scholay-mcp.exe artifacts/
-          Get-ChildItem artifacts -File | Get-FileHash -Algorithm SHA256 | Format-Table -AutoSize | Out-String | Set-Content artifacts/SHA256SUMS.txt
+          Get-ChildItem artifacts -File | ForEach-Object { "{0}  {1}" -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant(), $_.Name } | Set-Content artifacts/SHA256SUMS.txt
       - name: Stage unsigned macOS app
         if: runner.os == 'macOS'
         run: |
