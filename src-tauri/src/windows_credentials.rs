@@ -61,6 +61,12 @@ mod tests {
     #[test]
     fn isolated_credential_round_trip() {
         let name = format!("scholay-tody.test.{}", uuid::Uuid::new_v4());
+        // Only a unique synthetic name. Report the OS status (not credential
+        // contents) to distinguish missing desktop logon sessions from bugs.
+        let mut pointer = std::ptr::null_mut();
+        let probe = unsafe { CredReadW(&HSTRING::from(name.as_str()), CRED_TYPE_GENERIC, None, &mut pointer) };
+        if probe.is_ok() { unsafe { CredFree(pointer.cast()); } }
+        assert_eq!(probe.unwrap_err().code(), HRESULT::from_win32(ERROR_NOT_FOUND.0), "Credential Manager requires a usable Windows logon session");
         struct Cleanup(String);
         impl Drop for Cleanup {
             fn drop(&mut self) {
