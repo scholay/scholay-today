@@ -45,9 +45,12 @@ pub fn run() {
     tauri::Builder::default().setup(move |app| {
         let output = folder.clone();
         let handle = app.handle().clone();
-        let watchdog = handle.clone();
-        std::thread::spawn(move || { std::thread::sleep(std::time::Duration::from_secs(40)); eprintln!("WebView2 fixture timed out"); watchdog.exit(2); });
-        tauri::WebviewWindowBuilder::new(app, "windows-smoke", tauri::WebviewUrl::External(url.parse().unwrap()))
+        // WebView2 can dispatch page callbacks during synchronous creation.
+        // Let setup return before creating the window, so exit events are live.
+        let window_host = handle.clone();
+        std::thread::spawn(move || { std::thread::sleep(std::time::Duration::from_secs(40)); eprintln!("WebView2 fixture timed out"); std::process::exit(2); });
+        std::thread::spawn(move || {
+        let created = tauri::WebviewWindowBuilder::new(&window_host, "windows-smoke", tauri::WebviewUrl::External(url.parse().unwrap()))
             .title("scholay tody · synthetic WebView2 verification").inner_size(800.0, 640.0)
             .data_directory(folder.join("browser"))
             .on_page_load(move |window, payload| {
@@ -78,7 +81,9 @@ pub fn run() {
                         Err(error) => { eprintln!("WebView2 smoke failed: {error}"); handle.exit(1); }
                     }
                 });
-            }).build()?;
+            }).build();
+        if let Err(error) = created { eprintln!("WebView2 fixture window failed: {error}"); window_host.exit(1); }
+        });
         Ok(())
     }).run(context).expect("WebView2 smoke app");
 }
