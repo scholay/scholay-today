@@ -77,13 +77,25 @@ pub fn run() {
                         Ok::<_,String>(serde_json::json!({"passed":true,"engine":"WebView2","isolatedWorld":true,"formAndHiddenExcluded":true,"blocks":doc.blocks.len(),"images":doc.assets.len(),"archive":archive}))
                     }.await;
                     match result {
-                        Ok(report) => { println!("{report}"); handle.exit(0); }
-                        Err(error) => { eprintln!("WebView2 smoke failed: {error}"); handle.exit(1); }
+                        Ok(report) => {
+                            println!("{report}");
+                            // Tear down the test browser before ending its UI
+                            // loop; WebView2 may otherwise retain a modal loop.
+                            if let Some(window) = handle.get_webview_window("windows-smoke") { let _ = window.destroy(); }
+                            handle.exit(0);
+                        }
+                        Err(error) => { eprintln!("WebView2 smoke failed: {error}"); std::process::exit(1); }
                     }
                 });
             }).build();
         if let Err(error) = created { eprintln!("WebView2 fixture window failed: {error}"); window_host.exit(1); }
         });
         Ok(())
-    }).run(context).expect("WebView2 smoke app");
+    }).build(context).expect("WebView2 smoke app").run(|_, event| {
+        match event {
+            tauri::RunEvent::ExitRequested { code, .. } => eprintln!("WebView2 fixture exit requested: {code:?}"),
+            tauri::RunEvent::Exit => eprintln!("WebView2 fixture event loop exited"),
+            _ => {}
+        }
+    });
 }

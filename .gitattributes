@@ -1,0 +1,4 @@
+# Keep source snapshots identical on Windows (including source contract tests).
+* text=auto eol=lf
+*.bat text eol=crlf
+*.cmd text eol=crlf
