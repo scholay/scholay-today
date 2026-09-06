@@ -12,7 +12,7 @@ export type IconName =
   | "chevron-right" | "globe" | "focus" | "arrow-down" | "arrow-up"
   | "eye" | "eye-off" | "trash" | "mute" | "pin" | "x" | "command"
   | "copy" | "list" | "grid" | "text" | "alert" | "papr"
-  | "play" | "pause" | "skip-back" | "skip-fwd" | "headphones";
+  | "play" | "pause" | "skip-back" | "skip-fwd" | "headphones" | "moon";
 
 interface Props {
   name: IconName;
@@ -51,6 +51,8 @@ export default function Icon({
   };
 
   switch (name) {
+    case "moon":
+      return <svg {...p}><path d="M20.9 13A9 9 0 0 1 11 3.1 9 9 0 1 0 20.9 13Z"/></svg>;
     case "inbox":
       return <svg {...p}><path d="M22 12h-5l-2 3h-6l-2-3H2" /><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" /></svg>;
     case "circle":

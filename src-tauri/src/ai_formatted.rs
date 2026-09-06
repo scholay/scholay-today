@@ -9,6 +9,8 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, State, Webview};
 
+#[path = "ai_formatted_content.rs"]
+mod content;
 #[path = "ai_formatted_numeric.rs"]
 mod numeric;
 
@@ -108,10 +110,10 @@ pub async fn capture_page_view(
     };
     let dom = page_view::capture_loaded_page(&app, &request_id, &source_url).await?;
     let structured_capture_id = format!("page-{}", uuid::Uuid::new_v4());
-    {
+    let document = {
         let conn = state.db.lock().await;
-        crate::article_export::save_capture(&conn, article_id, &structured_capture_id, &dom)?;
-    }
+        crate::article_export::save_capture(&conn, article_id, &structured_capture_id, &dom)?
+    };
     let mut warnings = vec!["Only currently rendered main-page text was captured; hidden, paginated, and embedded content is not included.".into()];
     if dom.body_fallback {
         warnings.push(
@@ -120,12 +122,15 @@ pub async fn capture_page_view(
     }
     if dom.has_media {
         warnings.push(
-            "Images, media, attachments, and embedded frame contents are not transcribed.".into(),
+            "Captured images are retained as Markdown links; image pixels, media, attachments and embedded frames are not transcribed.".into(),
         );
     }
+    // Keep the literal captured text/character-count evidence contract. The
+    // separately saved structured snapshot supplies the AI's image-aware input.
     let text: String = dom.text.chars().take(MAX_CAPTURE_CHARS).collect();
     let char_count = text.chars().count();
-    let truncated = dom.truncated || dom.text.chars().count() > MAX_CAPTURE_CHARS;
+    let truncated =
+        dom.truncated || document.truncated || dom.text.chars().count() > MAX_CAPTURE_CHARS;
     if truncated {
         warnings.push("The captured source reached the safety limit and is incomplete.".into());
     }
@@ -185,6 +190,48 @@ fn capture_from_draft(draft: AiFormattedDraft) -> PageCapture {
     }
 }
 
+/// Fetch only stored captured assets, without credentials or private redirects.
+#[tauri::command]
+pub async fn fetch_captured_image(
+    state: State<'_, AppState>,
+    webview: Webview,
+    article_id: i64,
+    capture_id: String,
+    url: String,
+) -> Result<Vec<u8>, String> {
+    require_main(&webview)?;
+    let doc = {
+        let conn = state.read().await;
+        crate::article_export::saved(&conn, article_id, Some(&capture_id))?
+            .ok_or("The captured article is unavailable.")?
+    };
+    if !doc.assets.iter().any(|a| a.original_url == url) {
+        return Err("This image is not part of the captured article.".into());
+    }
+    let fetch = async {
+        let mut candidates = Vec::new();
+        if let Some(tail) = url.strip_prefix("http://") {
+            candidates.push(format!("https://{tail}"));
+        }
+        candidates.push(url);
+        for candidate in candidates {
+            for referer in [Some(doc.source_url.as_str()), None] {
+                if let Ok((bytes, _, _)) =
+                    crate::public_fetch::fetch(&candidate, referer, 6 * 1024 * 1024).await
+                {
+                    if crate::article_export::image_extension(&bytes).is_some() {
+                        return Ok(bytes);
+                    }
+                }
+            }
+        }
+        Err("The original image could not be loaded.".to_string())
+    };
+    tokio::time::timeout(Duration::from_secs(35), fetch)
+        .await
+        .map_err(|_| "Loading the original image timed out.".to_string())?
+}
+
 fn chunks(text: &str) -> Vec<String> {
     let mut result = Vec::new();
     let mut pending = String::new();
@@ -225,6 +272,7 @@ fn system_prompt(language: &str) -> String {
         Never invent missing facts, conclusions, or content of linked pages/images/attachments. Do not turn a fragment into an apparently complete document. \
         Organize with ## / ### headings, paragraphs, lists and tables where useful, preserving meaningful order. \
         Standard Markdown and > [!info] or > [!warning] callouts are allowed. Preserve substantive numeric values with their units, bounds and conditions; keep Arabic digits for quantities. \
+        Lines beginning SCHOLAYIMAGE are opaque captured-image placeholders: copy each VERBATIM, exactly once, as its own paragraph, in its original order beside the corresponding text/caption. Never generate image syntax or image URLs yourself. \
         Preserve scientific/grant identifiers (such as letter-number codes) and article source URLs verbatim. Dates may lose leading zero padding, and purely structural list labels may be renumbered or replaced by headings. \
         Output the detailed Markdown BODY ONLY: no YAML frontmatter, no overall code fence, no invented metadata, no preamble or closing remarks. \
         The app adds provenance and a completeness warning separately. If this is one part of a longer source, restructure this part only; do not guess other parts.")
@@ -306,7 +354,7 @@ pub async fn ai_format_page(
                 && entry.capture.capture_id == capture_id
         })
         .map(|entry| entry.capture.clone());
-    let (capture, cfg) = {
+    let (capture, cfg, source_markdown) = {
         let conn = state.read().await;
         let capture = match cached {
             Some(capture) => capture,
@@ -322,8 +370,19 @@ pub async fn ai_format_page(
         )
         .map_err(|_| {
             "Configure an AI provider and API key in Settings before formatting.".to_string()
-        })?;
-        (capture, cfg)
+        })?
+        .without_deepseek_thinking();
+        let source_markdown = crate::article_export::saved(&conn, article_id, Some(&capture_id))?
+            .map(|doc| content::body_markdown(&doc))
+            .filter(|body| !body.trim().is_empty())
+            .unwrap_or_else(|| {
+                capture
+                    .text
+                    .replace('&', "&amp;")
+                    .replace('<', "&lt;")
+                    .replace('>', "&gt;")
+            });
+        (capture, cfg, source_markdown)
     };
     if capture.text.chars().filter(|c| !c.is_whitespace()).count() < 120
         || capture.char_count > MAX_CAPTURE_CHARS
@@ -331,27 +390,53 @@ pub async fn ai_format_page(
         return Err("The captured page contains too little text or exceeds the source limit. Capture it again.".into());
     }
     let previous_capture = newest_capture(article_id);
-    let parts = chunks(&capture.text);
+    let protected = content::ProtectedSource::new(&source_markdown);
+    let parts = chunks(&protected.text);
     let http = state.http();
     let system = system_prompt(&language);
-    let body = tokio::time::timeout(Duration::from_secs(360), async {
+    let (body, fallback_parts) = tokio::time::timeout(Duration::from_secs(360), async {
         let mut output = Vec::new();
+        let mut fallback_parts = Vec::new();
+        let mut provider_failed = false;
         for (index, part) in parts.iter().enumerate() {
             let input = serde_json::json!({"untrusted_page_title": capture.source_title, "part": index + 1, "parts": parts.len(), "untrusted_rendered_text": part}).to_string();
             let mut output_bytes = 0;
             let mut sink = |delta: &str| { output_bytes += delta.len(); output_bytes <= 128_000 };
-            let outcome = ai::stream_chat(&http, &cfg, &system, &input, &mut sink, FORMAT_MAX_TOKENS).await
-                .map_err(|_| "The AI provider request failed. Check its settings or connection and retry; the existing draft is unchanged.".to_string())?;
-            validate_output(part, &outcome).map_err(|error| format!("Part {}/{}: {error}", index + 1, parts.len()))?;
-            output.push(outcome.text.trim().to_string());
+            // One bounded attempt per part. Do not repeatedly spend tokens on
+            // a failing provider or discard every successful neighbouring part.
+            let outcome = if provider_failed { None } else {
+                match tokio::time::timeout(Duration::from_secs(90), ai::stream_chat(&http, &cfg, &system, &input, &mut sink, FORMAT_MAX_TOKENS)).await {
+                    Ok(Ok(outcome)) => Some(outcome),
+                    _ => { provider_failed = true; None }
+                }
+            };
+            let valid = outcome.as_ref().is_some_and(|outcome| {
+                let audit = ai::ChatOutcome { text: protected.text_for_audit(&outcome.text), completed: outcome.completed, finished_naturally: outcome.finished_naturally };
+                validate_output(&protected.text_for_audit(part), &audit).is_ok()
+                    && protected.validate_images(part, &outcome.text).is_ok()
+            });
+            if valid {
+                output.push(protected.restore(outcome.as_ref().unwrap().text.trim()));
+            } else {
+                fallback_parts.push(index + 1);
+                // Deterministic original Markdown keeps ALL source text and
+                // images; never save the lossy/truncated model response.
+                output.push(protected.restore(part));
+            }
         }
-        Ok::<String, String>(output.join("\n\n"))
-    }).await.map_err(|_| "Formatting timed out. The existing draft is unchanged; retry when the AI service is available.".to_string())??;
+        (output.join("\n\n"), fallback_parts)
+    }).await.unwrap_or_else(|_| (source_markdown.clone(), (1..=parts.len()).collect()));
     if newest_capture(article_id) != previous_capture {
         return Err("A newer page was captured while formatting. The old result was not saved; format the new capture instead.".into());
     }
     let generated_at = chrono::Utc::now().to_rfc3339();
     let mut warnings = capture.warnings.clone();
+    let body = if fallback_parts.is_empty() {
+        body
+    } else {
+        warnings.push(format!("Original Markdown retained for parts {:?}; the AI response was unavailable or did not pass completeness/image checks. These parts were not AI-rewritten or translated.", fallback_parts));
+        format!("{}{body}", content::fallback_notice(&language))
+    };
     if parts.len() > 1 {
         warnings.push(format!("The captured source was formatted in {} consecutive parts; no later pages were fetched.", parts.len()));
     }

@@ -88,6 +88,7 @@ export interface Prefs {
   showSidebarCounts: boolean;
   showCardThumbs: boolean;
   reduceMotion: boolean;
+  webDarkMode: boolean;
   showReadingTime: boolean;
   markReadOnOpen: boolean;
   markReadOnScroll: boolean;
@@ -204,6 +205,7 @@ interface UiState {
 }
 
 const PREF_KEYS: (keyof Prefs)[] = [
+  "webDarkMode",
   "showSidebarCounts",
   "showCardThumbs",
   "reduceMotion",
@@ -260,6 +262,7 @@ function loadPrefs(): Prefs {
     showSidebarCounts: ls.bool("pref.showSidebarCounts", true),
     showCardThumbs: ls.bool("pref.showCardThumbs", true),
     reduceMotion: ls.bool("pref.reduceMotion", false),
+    webDarkMode: ls.bool("pref.webDarkMode", true),
     showReadingTime: ls.bool("pref.showReadingTime", true),
     markReadOnOpen: ls.bool("pref.markReadOnOpen", true),
     markReadOnScroll: ls.bool("pref.markReadOnScroll", false),

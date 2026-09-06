@@ -4,6 +4,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import * as api from "../api";
 import Icon from "../components/Icon";
+import WebThemeToggle from "../components/WebThemeToggle";
 import { enqueuePageView, nextPageViewRequestId } from "../lib/pageViewQueue";
 import { isPageViewStatusEvent, safePageViewUrl, type PageViewAction } from "../lib/pageViewState";
 import { reportError } from "../toast";
@@ -152,6 +153,7 @@ export default function HotPageView({ url, active, onClose }: HotPageViewProps) 
           <button type="button" title={t("reader.webReload")} aria-label={t("reader.webReload")} disabled={!active || !sourceUrl || (!current?.created && !!current?.loading && !current.waiting)} onClick={() => current?.created ? run("reload") : retry()}><Icon name="refresh" size={14}/></button>
         </div>
         <span className="reader-webview-url" title={externalUrl ?? undefined}>{externalUrl ?? t("reader.webUnsafeUrl")}</span>
+        <WebThemeToggle disabled={!active}/>
         {current?.loading && <span className="reader-web-loading" role="status" title={current.waiting ? t("reader.webWaitingHint") : t("common.loading")} aria-label={current.waiting ? t("reader.webWaitingShort") : t("common.loading")}><span className="reader-web-spinner" aria-hidden="true"/>{current.waiting && <span>{t("reader.webWaitingShort")}</span>}</span>}
         <div className="reader-web-navigation">
           <button type="button" title={t("reader.tbOpenInBrowser")} aria-label={t("reader.tbOpenInBrowser")} disabled={!active || !externalUrl} onClick={() => externalOpen(externalUrl)}><Icon name="open" size={15}/></button>

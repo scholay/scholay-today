@@ -1,5 +1,27 @@
 import { describe, expect, it } from "vitest";
 import { capturedSourceForPreview, DEFAULT_FORMAT_LANGUAGE, dismissAiFormatError, formattedMarkdownFilename, isAiFormatBusy, isAiFormatLanguage, isCurrentCapture, prepareObsidianMarkdown, readerTabForArticle, settleAiFormatJob, splitMarkdownFrontmatter, type AiFormatJob } from "./aiFormatted";
+import { markdownCacheAction } from "./aiFormatted";
+
+describe("Markdown cache-first entry", () => {
+  it("starts generation only after a confirmed local cache miss", () => {
+    expect(markdownCacheAction("pending", true, false)).toBe("wait");
+    expect(markdownCacheAction("pending", false, false)).toBe("wait");
+    expect(markdownCacheAction("success", true, false)).toBe("wait");
+    expect(markdownCacheAction("error", false, false)).toBe("error");
+    expect(markdownCacheAction("error", true, false)).toBe("wait");
+    expect(markdownCacheAction("success", false, false)).toBe("generate");
+  });
+  it("reuses saved Markdown without loading a page or invoking AI", () => {
+    expect(markdownCacheAction("success", false, true)).toBe("cached");
+    expect(markdownCacheAction("success", true, true)).toBe("cached");
+    expect(markdownCacheAction("error", false, true)).toBe("cached");
+  });
+  it("lets explicit reformatting proceed while preserving the old draft", () => {
+    expect(markdownCacheAction("success", false, true, true)).toBe("generate");
+    expect(markdownCacheAction("success", true, true, true)).toBe("generate");
+    expect(markdownCacheAction("error", false, true, true)).toBe("generate");
+  });
+});
 
 describe("AI formatted article isolation", () => {
   it("defaults to Simplified Chinese without depending on the UI language", () => {

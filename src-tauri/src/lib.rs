@@ -27,6 +27,7 @@ mod hot_board;
 mod hot_sources;
 mod notify;
 mod page_view;
+mod page_theme;
 // The tauri-coupled refresh scheduler (progress channels, AppHandle) — built on
 // top of `papr_core::ingestion`. Was `ingestion::scheduler` before the split.
 mod scheduler;
@@ -281,6 +282,7 @@ pub fn run() {
             commands::smart_counts,
             commands::extract_fulltext,
             commands::fetch_image,
+            ai_formatted::fetch_captured_image,
             commands::import_opml,
             commands::export_opml,
             commands::get_setting,
@@ -338,6 +340,7 @@ pub fn run() {
             page_view::close_page_view,
             page_view::page_view_navigate_history,
             page_view::page_view_reload,
+            page_view::set_page_view_theme,
         ])
         .run(tauri::generate_context!())
         .expect("error while running scholay tody");

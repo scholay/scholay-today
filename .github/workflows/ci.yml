@@ -35,6 +35,8 @@ jobs:
       - run: pnpm build
       - run: pnpm prepare:mcp
       - run: cargo test --workspace --locked
+      - name: Reversible theme in real WKWebView / WebView2
+        run: cargo run --locked -p papr --example page-theme-smoke
       - name: Real WebView2 capture and image-export fixture
         if: runner.os == 'Windows'
         run: cargo run --locked -p papr --features windows-smoke --example windows-smoke
@@ -51,11 +53,11 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           mkdir -p artifacts
-          ditto -c -k --sequesterRsrc --keepParent 'target/release/bundle/macos/scholay tody.app' artifacts/scholay-tody-macos.zip
+          ditto -c -k --sequesterRsrc --keepParent 'target/release/bundle/macos/scholay tody.app' artifacts/scholay-today-macos.zip
           shasum -a 256 artifacts/*.zip > artifacts/SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: scholay-tody-${{ runner.os }}-${{ github.sha }}
+          name: scholay-today-${{ runner.os }}-${{ github.sha }}
           path: artifacts/
           if-no-files-found: error
           retention-days: 30

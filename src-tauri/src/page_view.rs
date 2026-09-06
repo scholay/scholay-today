@@ -64,6 +64,7 @@ struct PageRequest {
     initial_url: url::Url,
     navigation_epoch: AtomicU64,
     loaded: AtomicBool,
+    presentation: Mutex<crate::page_theme::Presentation>,
 }
 
 impl PageRequest {
@@ -102,6 +103,62 @@ fn emit_status(app: &AppHandle, request: &PageRequest, phase: PagePhase, url: Op
     if request.is_active() {
         let _ = app.emit_to(status_target(), STATUS_EVENT, request.payload(phase, url));
     }
+}
+
+fn sync_page_visibility(view: &tauri::Webview, request: Arc<PageRequest>) {
+    let current_view = view.clone();
+    // Recheck on the UI thread: a late preparation result must not show over
+    // a settings dialog or resurrect a view replaced by another article.
+    let _ = view.run_on_main_thread(move || {
+        if !request.is_active() { return; }
+        let show = request.presentation.lock().unwrap_or_else(|e| e.into_inner()).should_show();
+        if show { let _ = current_view.show(); }
+        else { let _ = current_view.hide(); }
+    });
+}
+
+fn prepare_page_presentation(view: &tauri::Webview, request: Arc<PageRequest>, dark: bool) {
+    let revision = request.presentation.lock().unwrap_or_else(|e| e.into_inner()).begin(dark);
+    crate::page_theme::apply_backing(view, dark);
+    sync_page_visibility(view, request.clone());
+    if !dark {
+        // Original colours have no readiness timer, loading gate or engine.
+        let _ = view.eval("window.__scholayPageThemeV1?.setEnabled(false);");
+        return;
+    }
+    let view = view.clone();
+    tauri::async_runtime::spawn(async move {
+        let started = std::time::Instant::now();
+        loop {
+            if !request.is_active() || !request.presentation.lock().unwrap_or_else(|e| e.into_inner()).pending(revision) { return; }
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            let tx = Mutex::new(Some(tx));
+            let probe_view = view.clone();
+            let probe_request = request.clone();
+            let submitted = view.run_on_main_thread(move || {
+                if !probe_request.is_active() || !probe_request.presentation.lock().unwrap_or_else(|e| e.into_inner()).pending(revision) {
+                    return;
+                }
+                let _ = probe_view.eval_with_callback(crate::page_theme::PREPARE_SCRIPT, move |value| {
+                    if let Some(tx) = tx.lock().unwrap_or_else(|e| e.into_inner()).take() {
+                        let _ = tx.send(value);
+                    }
+                });
+            });
+            let ready = if submitted.is_ok() {
+                matches!(tokio::time::timeout(std::time::Duration::from_millis(300), rx).await, Ok(Ok(value)) if value == "true")
+            } else { false };
+            // Broken CSS, blocked scripts or a failed navigation must not
+            // leave the reading area hidden forever. No unconditional delay
+            // on healthy pages: reveal as soon as first-paint CSS is ready.
+            if ready || started.elapsed() >= std::time::Duration::from_secs(8) {
+                request.presentation.lock().unwrap_or_else(|e| e.into_inner()).finish(revision);
+                sync_page_visibility(&view, request);
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(40)).await;
+        }
+    });
 }
 
 fn queue_navigation(app: AppHandle, request: Arc<PageRequest>, url: url::Url) {
@@ -207,12 +264,14 @@ pub async fn open_page_view(
     width: f64,
     height: f64,
     visible: bool,
+    dark_mode: bool,
 ) -> Result<(), String> {
     let parsed = parse_url(&url)?;
     if request_id.is_empty() || request_id.len() > 256 || request_id.chars().any(char::is_control) {
         return Err("Invalid original-page request ID.".into());
     }
     let _operation = VIEW_OPERATION.lock().await;
+    crate::page_theme::set_dark(dark_mode);
     let instance = ACTIVE_INSTANCE.fetch_add(1, Ordering::AcqRel) + 1;
     let request = Arc::new(PageRequest {
         instance,
@@ -221,6 +280,7 @@ pub async fn open_page_view(
         initial_url: parsed.clone(),
         navigation_epoch: AtomicU64::new(0),
         loaded: AtomicBool::new(false),
+        presentation: Mutex::new(crate::page_theme::Presentation::new(visible, dark_mode)),
     });
     *ACTIVE_REQUEST.lock().unwrap_or_else(|e| e.into_inner()) = Some(request.clone());
     let position = LogicalPosition::new(x, y);
@@ -250,7 +310,8 @@ pub async fn open_page_view(
     // narrow: it follows this webview through Bilibili redirects, while every
     // unrelated publisher retains the native default UA.
     let user_agent = page_view_user_agent(&parsed);
-    let mut builder = WebviewBuilder::new(LABEL, WebviewUrl::External(parsed));
+    let mut builder = WebviewBuilder::new(LABEL, WebviewUrl::External(parsed))
+        .initialization_script(crate::page_theme::initialization_script());
     if let Some(user_agent) = user_agent {
         builder = builder.user_agent(user_agent);
     }
@@ -287,7 +348,7 @@ pub async fn open_page_view(
             queue_navigation(popup_app.clone(), popup_request.clone(), url);
             NewWindowResponse::Deny
         })
-        .on_page_load(move |_view, payload| {
+        .on_page_load(move |view, payload| {
             if !load_request.is_active() {
                 return;
             }
@@ -303,9 +364,15 @@ pub async fn open_page_view(
                 PageLoadEvent::Started => {
                     load_request.loaded.store(false, Ordering::Release);
                     load_request.navigation_epoch.fetch_add(1, Ordering::AcqRel);
+                    // Wry reports Started at document commit / ContentLoading,
+                    // before the new document paints (not a subframe request).
+                    prepare_page_presentation(&view, load_request.clone(), crate::page_theme::is_dark());
                     PagePhase::Loading
                 }
                 PageLoadEvent::Finished => {
+                    // Theme may have changed since this native view was created.
+                    // Reconcile on every document, including history/redirects.
+                    let _ = view.eval(crate::page_theme::update_script());
                     load_request.loaded.store(true, Ordering::Release);
                     PagePhase::Loaded
                 }
@@ -329,13 +396,21 @@ pub async fn open_page_view(
             false
         });
     emit_status(&app, &request, PagePhase::Loading, None);
+    // Create dark-mode children outside the visible window until their native
+    // backing and preparation gate are in place, avoiding even a blank white
+    // frame between add_child and hide. Original mode takes the direct path.
+    let initial_position = if dark_mode { LogicalPosition::new(-width.max(1.0) - 100.0, y) } else { position };
     let view = window
-        .add_child(builder, position, size)
+        .add_child(builder, initial_position, size)
         .map_err(|_| "Could not open the original-page webview.".to_string())?;
-    if !visible {
+    if !visible || dark_mode {
         view.hide()
             .map_err(|_| "Could not hide the original-page webview.".to_string())?;
     }
+    if dark_mode {
+        view.set_position(position).map_err(|e| e.to_string())?;
+    }
+    prepare_page_presentation(&view, request, dark_mode);
     Ok(())
 }
 
@@ -365,12 +440,10 @@ pub async fn set_page_view_bounds(
 /// No-op when the view isn't open.
 #[tauri::command]
 pub async fn set_page_view_visible(app: AppHandle, visible: bool) -> Result<(), String> {
-    if let Some(view) = app.get_webview(LABEL) {
-        if visible {
-            view.show().map_err(|e| e.to_string())?;
-        } else {
-            view.hide().map_err(|e| e.to_string())?;
-        }
+    let request = ACTIVE_REQUEST.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    if let (Some(view), Some(request)) = (app.get_webview(LABEL), request) {
+        request.presentation.lock().unwrap_or_else(|e| e.into_inner()).visible = visible;
+        sync_page_visibility(&view, request);
     }
     Ok(())
 }
@@ -409,6 +482,19 @@ pub async fn page_view_reload(app: AppHandle) -> Result<(), String> {
         .map_err(|_| "Could not reload the original page.".into())
 }
 
+/// A fixed boolean styling command, not a generic script executor. Switching
+/// theme preserves page location, scroll position, forms and browser history.
+#[tauri::command]
+pub async fn set_page_view_theme(app: AppHandle, dark: bool) -> Result<(), String> {
+    let _operation = VIEW_OPERATION.lock().await;
+    crate::page_theme::set_dark(dark);
+    let request = ACTIVE_REQUEST.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    if let (Some(view), Some(request)) = (app.get_webview(LABEL), request) {
+        prepare_page_presentation(&view, request, dark);
+    }
+    Ok(())
+}
+
 // Fixed read-only script, executed in an isolated browser world, in the main
 // frame only. It neither executes page-provided instructions nor reads forms,
 // credentials, cookies, storage, frame documents, or shadow roots. Visibility
@@ -420,7 +506,10 @@ const CAPTURE_SCRIPT: &str = r#"(() => {
     return last >= 0xD800 && last <= 0xDBFF ? part.slice(0, -1) : part;
   };
   const scienceNet = ['news.sciencenet.cn', 'talent.sciencenet.cn'].includes(location.hostname);
-  const excluded = 'script,style,noscript,template,iframe,frame,object,embed,input,textarea,select,button,form,[contenteditable],[hidden],[aria-hidden="true"],nav,aside,footer,[role="navigation"],[role="dialog"],[role="contentinfo"],#site-footer,.site-footer' + (scienceNet ? ',#footer' : '');
+  const scienceBlog = location.hostname === 'blog.sciencenet.cn';
+  const nstc = ['www.nstc.gov.tw', 'nstc.gov.tw'].includes(location.hostname)
+    && location.pathname.startsWith('/folksonomy/detail/');
+  const excluded = 'script,style,noscript,template,iframe,frame,object,embed,input,textarea,select,button,form,[contenteditable],[hidden],[aria-hidden="true"],nav,aside,footer,[role="navigation"],[role="dialog"],[role="contentinfo"],#site-footer,.site-footer' + (scienceNet ? ',#footer' : '') + (nstc ? ',a.accessible[accesskey]' : '');
   const visible = el => {
     if (el.closest(excluded)) return false;
     for (let p = el; p; p = p.parentElement) {
@@ -430,14 +519,41 @@ const CAPTURE_SCRIPT: &str = r#"(() => {
     return el.getClientRects().length > 0;
   };
   const talentArticle = location.hostname === 'talent.sciencenet.cn' ? document.querySelector('div#showtable') : null;
-  const exactArticle = talentArticle && visible(talentArticle) ? talentArticle : null;
+  const blogArticle = scienceBlog ? document.querySelector('div#blog_article') : null;
+  // NSTC puts the title, related submission links and update date outside
+  // #articleContent. Keep its whole article panel, not the surrounding menus
+  // (body fallback previously made the first AI chunk almost all navigation).
+  const nstcBody = nstc ? document.querySelector('#articleContent') : null;
+  const nstcArticle = nstcBody && visible(nstcBody) ? nstcBody.closest('#templateF') : null;
+  const exactArticle = [blogArticle, talentArticle, nstcArticle].find(el => el && visible(el)) || null;
   const candidates = Array.from(document.querySelectorAll('[itemprop="articleBody"],article,main,[role="main"],#article,.article-content,.article_content,.content_detail,#content'));
   const score = el => el.querySelectorAll('p,li,td,th,h1,h2,h3,blockquote,pre').length;
   const root = exactArticle || candidates.filter(visible).sort((a,b) => score(b) - score(a))[0] || document.body;
   // This verified site puts the publication date/location in the preceding
   // table row, outside its article container. Retain that rendered metadata.
   const precedingRow = exactArticle?.closest('tr')?.previousElementSibling;
-  const metadata = precedingRow?.tagName === 'TR' ? precedingRow : null;
+  const metadata = precedingRow?.tagName === 'TR' ? [precedingRow] : [];
+  if (root === blogArticle) {
+    const header = root.previousElementSibling;
+    const title = header?.querySelector('h1.ph');
+    const date = Array.from(header?.querySelectorAll('p.xg2 > span.xg1') || [])
+      .find(el => /^\d{4}-\d{1,2}-\d{1,2}\s+\d{1,2}:\d{2}$/.test(el.textContent.trim()));
+    if (title) metadata.push(title);
+    if (date) metadata.push(date);
+  }
+  // ScienceNet appends previous-post links, a contest and sponsor logos
+  // INSIDE #blog_article. Keep the copyright notice and its source link, but
+  // not the following platform chrome. Never mutate the live page.
+  let articleChildren = root ? Array.from(root.childNodes) : [];
+  if (root === blogArticle) {
+    const copyright = articleChildren.findIndex(n => n.nodeType === Node.ELEMENT_NODE
+      && n.tagName === 'LABEL' && /^转载本文请联系原作者/.test(n.textContent.trim()));
+    if (copyright >= 0) {
+      const link = articleChildren.findIndex((n, i) => i > copyright && n.nodeType === Node.ELEMENT_NODE && n.tagName === 'A');
+      articleChildren = articleChildren.slice(0, link >= 0 ? link + 1 : copyright + 1);
+    }
+  }
+  const childrenOf = node => node === root ? articleChildren : Array.from(node.childNodes);
   const parts = []; let length = 0, visited = 0, truncated = false;
   const start = performance.now();
   function append(text) {
@@ -457,7 +573,7 @@ const CAPTURE_SCRIPT: &str = r#"(() => {
     if (block || tag === 'br') append('\n');
     if (tag === 'li') append('- ');
     const beforeChildren = length;
-    for (const child of node.childNodes) {
+    for (const child of childrenOf(node)) {
       visit(child);
       if (truncated) break;
     }
@@ -470,7 +586,7 @@ const CAPTURE_SCRIPT: &str = r#"(() => {
     if (tag === 'td' || tag === 'th') append('\t');
     if (block) append('\n');
   }
-  if (metadata) visit(metadata);
+  metadata.forEach(visit);
   if (root) visit(root);
   // A separate, inert markup snapshot retains document structure and image
   // positions. Only allowlisted markup is serialized; nothing is executed or
@@ -484,15 +600,15 @@ const CAPTURE_SCRIPT: &str = r#"(() => {
     if (node.nodeType!==Node.ELEMENT_NODE || !visible(node)) return '';
     const tag=node.tagName.toLowerCase();
     if (tag==='img') {
-      const url=safeUrl(node.getAttribute('data-src')||node.currentSrc||node.getAttribute('src')||'');
+      const url=safeUrl(node.getAttribute('data-src')||node.getAttribute('data-original')||node.getAttribute('data-lazy-src')||node.currentSrc||node.getAttribute('src')||'');
       const out=url?'<img src="'+esc(url)+'" alt="'+esc(node.getAttribute('alt')||'')+'">':'';htmlSize+=out.length;return out;
     }
-    const children=Array.from(node.childNodes).map(markup).join('');
+    const children=childrenOf(node).map(markup).join('');
     if (tag==='a') {const url=safeUrl(node.getAttribute('href')||'');return url?'<a href="'+esc(url)+'">'+children+'</a>':children;}
     if (!/^(p|div|section|article|main|h[1-6]|ul|ol|li|table|thead|tbody|tr|td|th|blockquote|pre|code|strong|b|em|i|del|figure|figcaption|br|hr)$/.test(tag)) return children;
     return '<'+tag+'>'+children+'</'+tag+'>';
   }
-  const html=(metadata?markup(metadata):'')+(root?markup(root):'');
+  const html=metadata.map(markup).join('')+(root?markup(root):'');
   return JSON.stringify({url: location.href, title: safeSlice(document.title,1000), readyState: document.readyState,
     html,
     text: parts.join('').replace(/[ \t]+\n/g,'\n').replace(/\n{3,}/g,'\n\n').trim(), truncated: truncated || document.title.length > 1000,
@@ -652,7 +768,7 @@ pub(crate) async fn capture_smoke_fixture(view: tauri::Webview) -> Result<Captur
     // This entry point is compiled only into the opt-in test executable.
     if url.host_str() != Some("127.0.0.1") { return Err("Smoke fixtures must be local.".into()); }
     let instance = ACTIVE_INSTANCE.fetch_add(1, Ordering::AcqRel) + 1;
-    let request = Arc::new(PageRequest { instance, request_id: "synthetic".into(), current_url: Mutex::new(url.clone()), initial_url: url, navigation_epoch: AtomicU64::new(0), loaded: AtomicBool::new(true) });
+    let request = Arc::new(PageRequest { instance, request_id: "synthetic".into(), current_url: Mutex::new(url.clone()), initial_url: url, navigation_epoch: AtomicU64::new(0), loaded: AtomicBool::new(true), presentation: Mutex::new(crate::page_theme::Presentation::new(true, false)) });
     let raw = native_capture(view, request.clone(), 0).await?;
     validate_snapshot(&raw, &request, 0)
 }
@@ -684,6 +800,7 @@ mod tests {
         PageRequest {
             instance: ACTIVE_INSTANCE.load(Ordering::Acquire),
             request_id: "capture-fixture".into(),
+            presentation: Mutex::new(crate::page_theme::Presentation::new(true, false)),
             current_url: Mutex::new(parse_url("https://example.com/article").unwrap()),
             initial_url: parse_url("https://example.com/article").unwrap(),
             navigation_epoch: AtomicU64::new(5),
@@ -768,7 +885,8 @@ mod tests {
         assert!(!CAPTURE_SCRIPT.contains("link.href.slice"));
         assert!(CAPTURE_SCRIPT.contains("location.hostname === 'talent.sciencenet.cn'"));
         assert!(CAPTURE_SCRIPT.contains("document.querySelector('div#showtable')"));
-        assert!(CAPTURE_SCRIPT.contains("if (metadata) visit(metadata)"));
+        assert!(CAPTURE_SCRIPT.contains("metadata.forEach(visit)"));
+        assert!(CAPTURE_SCRIPT.contains("document.querySelector('div#blog_article')"));
     }
 
     #[test]
@@ -919,6 +1037,7 @@ mod tests {
         let request = PageRequest {
             instance: 0,
             request_id: "request-17".into(),
+            presentation: Mutex::new(crate::page_theme::Presentation::new(true, false)),
             current_url: Mutex::new(parse_url("https://example.com/article").unwrap()),
             initial_url: parse_url("https://example.com/article").unwrap(),
             navigation_epoch: AtomicU64::new(0),
@@ -936,6 +1055,7 @@ mod tests {
         let request = PageRequest {
             instance: 0,
             request_id: "request-18".into(),
+            presentation: Mutex::new(crate::page_theme::Presentation::new(true, false)),
             current_url: Mutex::new(parse_url("https://example.com/article").unwrap()),
             initial_url: parse_url("https://example.com/article").unwrap(),
             navigation_epoch: AtomicU64::new(0),

@@ -1,15 +1,16 @@
-# scholay tody
+# scholay-today
 
 Local customized desktop reader: RSS, domestic/international trends, native Web
-view, and AI formatted Markdown. Product spelling is intentionally **scholay tody**.
+view, and AI formatted Markdown. The repository is **scholay-today**; the existing
+desktop app name remains **scholay tody** in this repository-only rename.
 
-[![CI](https://github.com/scholay/scholay-tody/actions/workflows/ci.yml/badge.svg)](https://github.com/scholay/scholay-tody/actions/workflows/ci.yml)
+[![CI](https://github.com/scholay/scholay-today/actions/workflows/ci.yml/badge.svg)](https://github.com/scholay/scholay-today/actions/workflows/ci.yml)
 
 面向 macOS 与 Windows 的本地科研信息工作台。提供 RSS / 国内外热榜、原网页浏览、AI formatted、带图 Markdown/JSON 导出，以及可供智能体管理订阅和目录的本机 MCP 服务。
 
 - [Windows 安装、授权连接器和构建说明](docs/windows.md)
 - [MCP 工具、平台授权与图文导出](docs/platform-batch1.md)
-- [本项目 CI 构建产物](https://github.com/scholay/scholay-tody/actions/workflows/ci.yml)
+- [本项目 CI 构建产物](https://github.com/scholay/scholay-today/actions/workflows/ci.yml)
 
 不捆绑任何人的订阅库、密钥或登录状态。AI 使用自己的外部接口配置；MCP 默认关闭。完整网页抓取现已包含 Windows WebView2 和 macOS WebKit 实现，Linux 的原生页面抓取仍未实现。Windows 构建未代码签名，Mac CI 构建未公证；详见对应安装说明。
 

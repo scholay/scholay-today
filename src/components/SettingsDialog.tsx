@@ -613,6 +613,9 @@ function AppearanceSection() {
             onChange={setMode}
           />
         </Row>
+        <Row label={t("reader.webDarkMode")} desc={t("reader.webDarkDescription")}>
+          <Toggle checked={prefs.webDarkMode} onChange={(v) => setPref({ webDarkMode: v })}/>
+        </Row>
       </div>
       <div className="settings-group">
         <h3 className="settings-group-title">{t("settings.appearance.layout")}</h3>

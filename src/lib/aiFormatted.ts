@@ -31,6 +31,17 @@ export interface AiFormatJob {
   captureId: string | null;
   error: string | null;
   source?: AiFormatSource;
+  /** Only an explicit refresh may replace an already saved local draft. */
+  forceRefresh?: boolean;
+}
+
+/** Never treat a pending/failed local lookup as a cache miss. Cached drafts
+ *  remain usable during background reads; only Reformat bypasses the cache. */
+export function markdownCacheAction(status: "pending" | "error" | "success", fetching: boolean, hasDraft: boolean, forceRefresh = false): "wait" | "error" | "cached" | "generate" {
+  if (forceRefresh) return "generate";
+  if (hasDraft) return "cached";
+  if (fetching || status === "pending") return "wait";
+  return status === "error" ? "error" : "generate";
 }
 
 /** Opening the source page is part of the same user-requested pipeline as its

@@ -52,4 +52,16 @@ describe("scholay tody display branding with compatible local identity", () => {
     expect(config.bundle.resources["../LICENSE"]).toBe("LICENSE");
     expect(read("LICENSE")).toContain("Copyright (c) 2026 l0ng-ai");
   });
+  it("uses the corrected repository and CI artifact names without renaming the installed app", () => {
+    const readme = read("README.md");
+    const ci = read(".github/workflows/ci.yml");
+    expect(readme).toContain("# scholay-today");
+    expect(readme).toContain("https://github.com/scholay/scholay-today/actions/workflows/ci.yml");
+    expect(readme).not.toContain("github.com/scholay/scholay-tody");
+    expect(ci).toContain("name: scholay-today-${{ runner.os }}-${{ github.sha }}");
+    expect(ci).toContain("artifacts/scholay-today-macos.zip");
+    expect(ci).toContain("target/release/bundle/macos/scholay tody.app");
+    expect(read("docs/windows.md")).toContain("scholay-today-Windows-<commit>");
+    expect(config.identifier).toBe("com.thomas.papr");
+  });
 });

@@ -4,7 +4,7 @@
 
 ## 安装与数据
 
-在本仓库 Actions 的成功 CI 中下载 `scholay-tody-Windows-<commit>`，解压后运行 NSIS `setup.exe`。按当前用户安装，无需把程序放入系统目录。安装器会在缺少 WebView2 时调用微软官方引导安装器，首次安装需要网络。
+在本仓库 Actions 的成功 CI 中下载 `scholay-today-Windows-<commit>`，解压后运行 NSIS `setup.exe`。按当前用户安装，无需把程序放入系统目录。安装器会在缺少 WebView2 时调用微软官方引导安装器，首次安装需要网络。
 
 当前二进制尚未购买 Windows 代码签名证书，可能出现 SmartScreen 提醒。请核对仓库、提交与 SHA-256；不要为了安装而关闭系统安全保护。
 

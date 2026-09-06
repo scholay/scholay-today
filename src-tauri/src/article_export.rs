@@ -77,7 +77,7 @@ pub fn save_capture(
     store(c, &doc)?;
     Ok(doc)
 }
-fn saved(
+pub(crate) fn saved(
     c: &Connection,
     article_id: i64,
     capture_id: Option<&str>,
@@ -98,7 +98,7 @@ fn cached(c: &Connection, article_id: i64) -> Result<Document, String> {
     store(c, &doc)?;
     Ok(doc)
 }
-fn image_extension(bytes: &[u8]) -> Option<&'static str> {
+pub(crate) fn image_extension(bytes: &[u8]) -> Option<&'static str> {
     if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
         Some("png")
     } else if bytes.starts_with(b"\xff\xd8\xff") {

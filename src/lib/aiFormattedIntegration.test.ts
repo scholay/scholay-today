@@ -34,6 +34,53 @@ describe("explicit AI formatted IPC", () => {
 });
 
 describe("AI reader integration boundaries", () => {
+  it("orders webpage, Markdown and RSS original without the short-summary card", () => {
+    const reader = read("components/Reader.tsx");
+    const tabs = reader.slice(reader.indexOf('<div className="reader-view-switch"'), reader.indexOf('title="导出图文资料包'));
+    const webAt = tabs.indexOf('onClick={() => setViewMode("web")}');
+    const markdownAt = tabs.indexOf("onClick={openFormatted}");
+    const rssAt = tabs.indexOf('onClick={() => setViewMode("reader")}');
+    expect(webAt).toBeGreaterThan(-1);
+    expect(markdownAt).toBeGreaterThan(webAt);
+    expect(rssAt).toBeGreaterThan(markdownAt);
+    expect(reader).not.toMatch(/mayOnlyHaveSummary|reader-summary-hint|reader-summary-actions|summaryOnlyHint|readOriginalHere/);
+    expect(read("components/reader-web-controls.css")).not.toMatch(/reader-summary-hint|reader-summary-actions/);
+    expect(reader).toContain('t("reader.tbExtractFullText")');
+    const select = reader.slice(reader.indexOf("const setViewMode ="), reader.indexOf("const [pageViewState"));
+    expect(select).toContain('if (mode === "reader")');
+    expect(select).toContain("setShowExtracted(false)");
+    expect(select).toContain("setShowTranslation(false)");
+  });
+  it("guards both entry and capture with the local cache decision", () => {
+    const reader = read("components/Reader.tsx");
+    expect(reader).toContain("markdownCacheAction(formattedQuery.status, formattedQuery.isFetching, Boolean(formattedDraft), formatJob?.forceRefresh)");
+    const open = reader.slice(reader.indexOf("const openFormatted ="), reader.indexOf("const reformat ="));
+    expect(open).toContain('if (articleUrl && !formatJob && formatCacheAction === "generate")');
+    const automatic = reader.slice(reader.indexOf("// Capture only after"), reader.indexOf("const openFormatted ="));
+    expect(automatic).toContain('formatCacheAction !== "generate"');
+    const refresh = reader.slice(reader.indexOf("const reformat ="), reader.indexOf("const retryFormatted ="));
+    expect(refresh).toContain("beginFormatPipeline(a.id, articleUrl, true)");
+  });
+  it("opts formatting into non-thinking mode before sending any chunks", () => {
+    const backend = readFileSync(new URL("../../src-tauri/src/ai_formatted.rs", import.meta.url), "utf8");
+    const format = backend.slice(backend.indexOf("pub async fn ai_format_page("));
+    const configAt = format.indexOf("ai::AiConfig::new(");
+    const nonThinkingAt = format.indexOf(".without_deepseek_thinking()");
+    const sendAt = format.indexOf("ai::stream_chat(");
+    expect(configAt).toBeGreaterThan(-1);
+    expect(nonThinkingAt).toBeGreaterThan(configAt);
+    expect(sendAt).toBeGreaterThan(nonThinkingAt);
+  });
+  it("keeps literal source evidence separate from image-aware model input and storage", () => {
+    const backend = readFileSync(new URL("../../src-tauri/src/ai_formatted.rs", import.meta.url), "utf8");
+    expect(backend).toContain("let text: String = dom.text.chars().take(MAX_CAPTURE_CHARS).collect()");
+    expect(backend).toContain("let char_count = text.chars().count()");
+    expect(backend).toContain("content::ProtectedSource::new(&source_markdown)");
+    expect(backend).toContain("source_text: capture.text.clone()");
+    expect(backend).toContain("source_char_count: capture.char_count");
+    expect(backend).toContain("a.original_url == url");
+    expect(backend).toContain("crate::public_fetch::fetch");
+  });
   it("opens AI immediately, then captures one loaded matching native page before formatting", () => {
     const reader = read("components/Reader.tsx");
     const capture = reader.slice(reader.indexOf("const captureAndFormat ="), reader.indexOf("const openFormatted ="));
@@ -74,10 +121,12 @@ describe("AI reader integration boundaries", () => {
   });
   it("keeps preview HTML behind the shared sanitizer and raw metadata/text in escaped React nodes", () => {
     const component = read("components/AIFormatted.tsx");
-    expect(component).toContain('import { renderMarkdown } from "../lib/markdown"');
-    expect(component).toContain("renderMarkdown(prepareObsidianMarkdown(parts.body))");
+    expect(component).toContain('import { capturedImageSources, renderMarkdown } from "../lib/markdown"');
+    expect(component).toContain("renderMarkdown(prepareObsidianMarkdown(parts.body), images)");
+    expect(component).toContain("fetchCapturedImage(articleId, draft.captureId, src)");
     expect(component.match(/dangerouslySetInnerHTML/g)).toHaveLength(1);
-    expect(component).toContain("dangerouslySetInnerHTML={{ __html: html }}");
+    expect(component).toContain("useMemo(() => ({ __html: html }), [html])");
+    expect(component).toContain("dangerouslySetInnerHTML={previewMarkup}");
     expect(component).toContain("<pre>{parts.frontmatter}</pre>");
     expect(component).toContain("<pre>{draft.sourceText}</pre>");
     expect(component).toContain("value={draft.markdown}");
@@ -89,9 +138,13 @@ describe("AI reader integration boundaries", () => {
   it("has matching English, Chinese and Japanese copy with the exact tab name", () => {
     const copies = ["en", "zh", "ja"].map((locale) => JSON.parse(read(`locales/${locale}.json`)).aiFormatted);
     for (const copy of copies) {
-      expect(copy.tab).toBe("AI formatted");
+      expect(copy.tab).toBe("Markdown");
       expect(Object.keys(copy).sort()).toEqual(Object.keys(copies[0]).sort());
       expect(Object.values(copy).every((value) => typeof value === "string" && value.length > 0)).toBe(true);
+    }
+    expect(JSON.parse(read("locales/zh.json")).reader.readingMode).toBe("RSS 原文");
+    for (const locale of ["en", "zh", "ja"]) {
+      expect(JSON.parse(read(`locales/${locale}.json`)).reader).not.toHaveProperty("summaryOnlyHint");
     }
   });
 });

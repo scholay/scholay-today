@@ -90,6 +90,8 @@ pub struct AiConfig {
     /// official endpoint; an override points at any compatible provider
     /// (OpenRouter, Groq, DeepSeek, a local server, …).
     base_url: String,
+    /// Per-task opt-in; other AI features retain the provider's defaults.
+    disable_deepseek_thinking: bool,
 }
 
 impl AiConfig {
@@ -134,6 +136,7 @@ impl AiConfig {
             api_key,
             model,
             base_url,
+            disable_deepseek_thinking: false,
         })
     }
 
@@ -141,6 +144,19 @@ impl AiConfig {
     /// exposed.
     pub fn model(&self) -> &str {
         &self.model
+    }
+
+    /// Formatting is a text transformation, so it does not need DeepSeek's
+    /// default thinking phase. Also recognise its official endpoint when the
+    /// settings use the generic OpenAI-compatible provider. Do not send this
+    /// vendor-specific field to unrelated OpenAI-compatible services.
+    pub fn without_deepseek_thinking(mut self) -> Self {
+        self.disable_deepseek_thinking = self.provider == Provider::DeepSeek
+            || (self.provider == Provider::OpenAi
+                && url::Url::parse(&self.base_url)
+                    .ok()
+                    .is_some_and(|url| url.host_str() == Some("api.deepseek.com")));
+        self
     }
 }
 
@@ -257,15 +273,7 @@ async fn stream_openai(
     sink: &mut DeltaSink<'_>,
     max_tokens: u32,
 ) -> AppResult<ChatOutcome> {
-    let body = json!({
-        "model": cfg.model,
-        "max_tokens": max_tokens,
-        "stream": true,
-        "messages": [
-            { "role": "system", "content": system },
-            { "role": "user", "content": user },
-        ],
-    });
+    let body = openai_request_body(cfg, system, user, max_tokens);
     let resp = client
         .post(format!("{}/chat/completions", cfg.base_url))
         .bearer_auth(&cfg.api_key)
@@ -274,6 +282,22 @@ async fn stream_openai(
         .send()
         .await?;
     consume_sse(resp, sink, Provider::OpenAi).await
+}
+
+fn openai_request_body(cfg: &AiConfig, system: &str, user: &str, max_tokens: u32) -> Value {
+    let mut body = json!({
+        "model": cfg.model,
+        "max_tokens": max_tokens,
+        "stream": true,
+        "messages": [
+            { "role": "system", "content": system },
+            { "role": "user", "content": user },
+        ],
+    });
+    if cfg.disable_deepseek_thinking {
+        body["thinking"] = json!({ "type": "disabled" });
+    }
+    body
 }
 
 /// What to do after handling one SSE line.
@@ -607,6 +631,116 @@ mod tests {
     // --- AiConfig::new: normalising pasted credentials. ---
 
     use super::AiConfig;
+
+    #[test]
+    fn formatting_disables_deepseek_thinking_for_both_provider_settings() {
+        for (provider, base_url) in [
+            ("deepseek", None),
+            ("deepseek", Some("https://deepseek-proxy.example/v1")),
+            ("openai", Some("https://api.deepseek.com")),
+            ("openai", Some("https://api.deepseek.com/v1/")),
+        ] {
+            let cfg = AiConfig::new(
+                Some(provider.into()),
+                Some("test-key".into()),
+                Some("deepseek-v4-flash".into()),
+                base_url.map(String::from),
+            )
+            .unwrap();
+            // Summary, translation and Q&A requests must remain unchanged.
+            let normal = super::openai_request_body(&cfg, "system", "article", 8192);
+            assert!(normal.get("thinking").is_none());
+            let formatting = super::openai_request_body(
+                &cfg.without_deepseek_thinking(), "system", "article", 8192,
+            );
+            assert_eq!(formatting["thinking"], json!({ "type": "disabled" }));
+            let mut expected = normal;
+            expected["thinking"] = json!({ "type": "disabled" });
+            assert_eq!(formatting, expected);
+        }
+    }
+
+    #[test]
+    fn formatting_does_not_send_deepseek_options_to_unrelated_services() {
+        for (provider, base_url) in [
+            ("openai", None),
+            ("anthropic", None),
+            ("openai", Some("https://openrouter.ai/api/v1")),
+            ("openai", Some("https://api.deepseek.com.example/v1")),
+            ("openai", Some("https://api.deepseek.com@other.example/v1")),
+            ("openai", Some("not-a-url")),
+        ] {
+            let cfg = AiConfig::new(
+                Some(provider.into()),
+                Some("test-key".into()),
+                Some("deepseek-v4-flash".into()),
+                base_url.map(String::from),
+            )
+            .unwrap()
+            .without_deepseek_thinking();
+            assert!(!cfg.disable_deepseek_thinking);
+            assert!(super::openai_request_body(&cfg, "system", "article", 8192)
+                .get("thinking").is_none());
+        }
+    }
+
+    #[tokio::test]
+    async fn non_thinking_option_reaches_the_streaming_http_request() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            let body = loop {
+                let mut chunk = [0; 1024];
+                let count = socket.read(&mut chunk).await.unwrap();
+                assert!(count > 0 && request.len() < 16_384);
+                request.extend_from_slice(&chunk[..count]);
+                if let Some(end) = request.windows(4).position(|w| w == b"\r\n\r\n") {
+                    let headers = std::str::from_utf8(&request[..end]).unwrap();
+                    assert!(headers.starts_with("POST /chat/completions HTTP/1.1"));
+                    let length = headers.lines().find_map(|line| {
+                        let (name, value) = line.split_once(':')?;
+                        name.eq_ignore_ascii_case("content-length")
+                            .then(|| value.trim().parse::<usize>().unwrap())
+                    }).unwrap();
+                    if request.len() >= end + 4 + length {
+                        break serde_json::from_slice::<serde_json::Value>(
+                            &request[end + 4..end + 4 + length],
+                        ).unwrap();
+                    }
+                }
+            };
+            let events = "data: {\"choices\":[{\"delta\":{\"content\":\"# Article\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n";
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                events.len(), events,
+            );
+            socket.write_all(response.as_bytes()).await.unwrap();
+            body
+        });
+        let cfg = AiConfig::new(
+            Some("deepseek".into()), Some("test-key".into()),
+            Some("deepseek-v4-flash".into()), Some(format!("http://{address}")),
+        ).unwrap().without_deepseek_thinking();
+        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+        let outcome = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            super::stream_chat(&client, &cfg, "format", "source", &mut |_| true, 8192),
+        ).await.unwrap().unwrap();
+        assert!(outcome.completed && outcome.finished_naturally);
+        assert_eq!(outcome.text, "# Article");
+        let body = server.await.unwrap();
+        assert_eq!(body["model"], "deepseek-v4-flash");
+        assert_eq!(body["thinking"], json!({ "type": "disabled" }));
+        assert_eq!(body["max_tokens"], 8192);
+        assert_eq!(body["stream"], true);
+        assert_eq!(body["messages"][1]["content"], "source");
+        assert!(body.get("reasoning_effort").is_none());
+    }
 
     #[test]
     fn config_trims_whitespace_off_a_pasted_api_key() {

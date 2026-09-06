@@ -13,6 +13,7 @@ import { useArticleActions } from "./hooks/articleActions";
 import { readCurrentItems } from "./lib/currentList";
 import { checkForUpdates } from "./lib/updater";
 import { applyThemeAccent } from "./lib/appearance";
+import { enqueuePageView } from "./lib/pageViewQueue";
 import { fitPaneWidths, paneResizeMax, resizePaneWidths, type PaneWidths } from "./lib/paneGeometry";
 import { useToasts, toast as toastApi, reportError } from "./toast";
 import type { ArticleQuery, ArticleSummary, Feed } from "./types";
@@ -58,6 +59,7 @@ export default function App({ active = true, onCaptureBusyChange, onRequestActiv
 
   const palette = useUi((s) => s.palette);
   const mode = useUi((s) => s.mode);
+  const webDarkMode = useUi((s) => s.prefs.webDarkMode);
   const density = useUi((s) => s.density);
   // OS colour scheme, tracked live so `mode: "system"` follows it without a
   // restart. Only matters while `mode === "system"`, but the listener is cheap
@@ -73,6 +75,11 @@ export default function App({ active = true, onCaptureBusyChange, onRequestActiv
   // The concrete light/dark actually applied: `mode` unless it's "system", in
   // which case the OS decides.
   const effectiveMode: ResolvedMode = mode === "system" ? (systemDark ? "dark" : "light") : mode;
+  useEffect(() => {
+    // Both RSS and Hot share one native child. Do not reopen it when changing
+    // theme: the fixed command removes/reapplies only our generated styles.
+    void enqueuePageView(() => api.setPageViewTheme(webDarkMode && effectiveMode === "dark")).catch(reportError);
+  }, [effectiveMode, webDarkMode]);
   const readerFont = useUi((s) => s.readerFont);
   const readerSize = useUi((s) => s.readerSize);
   const readerLeading = useUi((s) => s.readerLeading);

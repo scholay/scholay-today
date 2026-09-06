@@ -2,6 +2,7 @@
 
 import { invoke, Channel } from "@tauri-apps/api/core";
 import { imageBytes, type ImageBytesResponse } from "./lib/imageBytes";
+import { pageViewDarkMode } from "./lib/pageViewTheme";
 import type {
   AiEvent,
   AiFormattedDraft,
@@ -35,6 +36,9 @@ export const deleteFolder = (id: number) =>
   invoke<void>("delete_folder", { id });
 
 // ── images ──
+export const fetchCapturedImage = (articleId: number, captureId: string, url: string) =>
+  invoke<ImageBytesResponse>("fetch_captured_image", { articleId, captureId, url }).then(imageBytes);
+
 /** Fetch an image's raw bytes via the backend, which walks Referer fallbacks
  *  (none → image origin → article URL) until the host serves it — hotlink
  *  protection demands different Referers on different hosts. Used by the
@@ -345,7 +349,8 @@ export const openPageView = (
   b: PageViewBounds,
   requestId: string,
   visible = true,
-) => invoke<void>("open_page_view", { url, ...b, requestId, visible });
+) => invoke<void>("open_page_view", { url, ...b, requestId, visible, darkMode: pageViewDarkMode() });
+export const setPageViewTheme = (dark: boolean) => invoke<void>("set_page_view_theme", { dark });
 export const setPageViewBounds = (b: PageViewBounds) =>
   invoke<void>("set_page_view_bounds", { ...b });
 export const setPageViewVisible = (visible: boolean) =>

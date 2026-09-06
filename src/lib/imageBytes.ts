@@ -28,6 +28,8 @@ export function imageMime(src: string, bytes: Uint8Array): string {
  *  formats match. SVG is text (no fixed magic bytes), so it is left to the
  *  extension fallback in `imageMime`. */
 function sniffImageMime(b: Uint8Array): string | null {
+  if (b.length >= 16 && String.fromCharCode(...b.subarray(4, 8)) === "ftyp" && ["avif", "avis"].includes(String.fromCharCode(...b.subarray(8, 12))))
+    return "image/avif";
   // PNG: 89 50 4E 47
   if (b.length >= 4 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47)
     return "image/png";

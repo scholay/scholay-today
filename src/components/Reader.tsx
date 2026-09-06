@@ -13,7 +13,7 @@ import { renderMarkdown } from "../lib/markdown";
 import { downloadBlob, imageFilename } from "../lib/download";
 import { imageDataUrl } from "../lib/imageBytes";
 import { loadReaderViewPreference, resolveReaderViewMode, saveReaderViewPreference, type ReaderViewMode } from "../lib/readerViewMode";
-import { DEFAULT_FORMAT_LANGUAGE, isCurrentCapture, readerTabForArticle, settleAiFormatJob, type AiFormatJob, type AiFormatLanguage, type AiFormatSource } from "../lib/aiFormatted";
+import { DEFAULT_FORMAT_LANGUAGE, isCurrentCapture, markdownCacheAction, readerTabForArticle, settleAiFormatJob, type AiFormatJob, type AiFormatLanguage, type AiFormatSource } from "../lib/aiFormatted";
 import { errorText } from "../lib/errors";
 import { enqueuePageView, nextPageViewRequestId } from "../lib/pageViewQueue";
 import { applyPageViewStatus, createPageViewState, dismissPageViewNotice, isPageViewStatusEvent, markPageViewCreated, markPageViewError, markPageViewWaiting, pageViewBanner, pageViewExternalUrl, pageViewForArticle, safePageViewUrl, startPageViewWait, type PageViewAction, type PageViewState } from "../lib/pageViewState";
@@ -23,6 +23,7 @@ import { reportError, toast } from "../toast";
 import { tagColor } from "../lib/tagColors";
 import type { ArticleDetail, PageCapture } from "../types";
 import AIFormatted from "./AIFormatted";
+import WebThemeToggle from "./WebThemeToggle";
 import ArticleExportPanel from "./ArticleExportPanel";
 import ReaderViewOutlet, { readerSummaryKey, readerViewKey } from "./ReaderViewOutlet";
 import Icon from "./Icon";
@@ -242,6 +243,12 @@ export default function Reader({ onToast, active = true, onCaptureBusyChange, wo
   const setViewMode = useCallback((mode: ReaderViewMode) => {
     if (!activeRef.current) return;
     setFormattedArticleId(null);
+    if (mode === "reader") {
+      // RSS original always enters the feed-provided body. Full-text and
+      // translation remain available as explicit toolbar actions.
+      setShowExtracted(false);
+      setShowTranslation(false);
+    }
     // Leaving an AI page while its hidden browser is only opening is a cancel,
     // not an error. A capture already in IPC remains locked until its finally.
     if (id != null) {
@@ -324,6 +331,7 @@ export default function Reader({ onToast, active = true, onCaptureBusyChange, wo
   });
   const formattedDraft = formattedQuery.data?.articleId === id ? formattedQuery.data : null;
   const formatJob = id != null ? formatJobs[id] ?? null : null;
+  const formatCacheAction = markdownCacheAction(formattedQuery.status, formattedQuery.isFetching, Boolean(formattedDraft), formatJob?.forceRefresh);
   const formatBusy = formatJob?.phase === "opening" || formatJob?.phase === "capturing" || formatJob?.phase === "formatting";
 
   // Feed list, so the article's source feed can be checked for its per-feed
@@ -609,13 +617,13 @@ export default function Reader({ onToast, active = true, onCaptureBusyChange, wo
     }
   };
 
-  const beginFormatPipeline = (articleId: number, sourceUrl: string | null) => {
+  const beginFormatPipeline = (articleId: number, sourceUrl: string | null, forceRefresh = false) => {
     const runId = ++formatRunRef.current;
     formatCaptureClaimRef.current = null;
     setFormatJobs((jobs) => ({
       ...jobs,
       [articleId]: sourceUrl
-        ? { runId, phase: "opening", captureId: null, error: null }
+        ? { runId, phase: "opening", captureId: null, error: null, forceRefresh }
         : { runId, phase: "failed", captureId: null, error: t("reader.noOriginalUrl") },
     }));
     return runId;
@@ -659,17 +667,13 @@ export default function Reader({ onToast, active = true, onCaptureBusyChange, wo
     }
   };
 
-  // Once the user has selected AI formatted, wait for the local saved-draft
+  // Once the user has selected Markdown, wait for the local saved-draft
   // lookup to settle. A saved document wins without reopening or re-spending;
   // a confirmed empty result starts the hidden Web -> capture -> AI pipeline.
   useEffect(() => {
     if (!active || readerTab !== "formatted" || !a) return;
-    if (formattedQuery.isFetching) return;
-    if (formattedQuery.isError) {
-      if (formatJob?.phase === "opening") clearFormatJob(a.id, formatJob.runId);
-      return;
-    }
-    if (formattedDraft) {
+    if (formatCacheAction === "wait") return;
+    if (formatCacheAction === "error" || formatCacheAction === "cached") {
       if (formatJob?.phase === "opening") clearFormatJob(a.id, formatJob.runId);
       return;
     }
@@ -677,7 +681,7 @@ export default function Reader({ onToast, active = true, onCaptureBusyChange, wo
     // beginFormatPipeline deliberately creates the missing job; subsequent
     // renders stop here. Language cannot change while the job is busy.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, readerTab, a?.id, articleUrl, formattedQuery.isFetching, formattedQuery.isError, formattedDraft?.articleId, formatJob?.runId, formatJob?.phase]);
+  }, [active, readerTab, a?.id, articleUrl, formatCacheAction, formatJob?.runId, formatJob?.phase]);
 
   // A native creation/control failure is terminal for this automatic run. A
   // page that still has no Finished event ten seconds after the normal 20s
@@ -700,7 +704,7 @@ export default function Reader({ onToast, active = true, onCaptureBusyChange, wo
   // quiet period lets dynamic article bodies settle; any new loading event
   // cancels the timer. The claim is taken before IPC to guarantee one capture.
   useEffect(() => {
-    if (!active || readerTab !== "formatted" || formatJob?.phase !== "opening" || !a || formattedQuery.isFetching || formattedQuery.isError || formattedDraft) return;
+    if (!active || readerTab !== "formatted" || formatJob?.phase !== "opening" || !a || formatCacheAction !== "generate") return;
     const controller = pageViewControllerRef.current;
     if (!currentPageView?.created || currentPageView.loading || currentPageView.error || controller?.articleId !== a.id || controller.originalUrl !== articleUrl || controller.requestId !== currentPageView.requestId) return;
     const articleId = a.id;
@@ -716,7 +720,7 @@ export default function Reader({ onToast, active = true, onCaptureBusyChange, wo
     return () => window.clearTimeout(timer);
     // captureAndFormat is intentionally guarded by the run/request claim.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, readerTab, formatJob?.phase, formatJob?.runId, a?.id, articleUrl, formattedQuery.isFetching, formattedQuery.isError, formattedDraft?.articleId, currentPageView?.requestId, currentPageView?.created, currentPageView?.loading, currentPageView?.error, formatLanguage]);
+  }, [active, readerTab, formatJob?.phase, formatJob?.runId, a?.id, articleUrl, formatCacheAction, currentPageView?.requestId, currentPageView?.created, currentPageView?.loading, currentPageView?.error, formatLanguage]);
 
   const openFormatted = () => {
     if (!activeRef.current || !a) return;
@@ -727,14 +731,14 @@ export default function Reader({ onToast, active = true, onCaptureBusyChange, wo
       void api.setPageViewVisible(false).catch(() => {});
     }
     setFormattedArticleId(a.id);
-    if (articleUrl && !formattedDraft && !formatJob && !formattedQuery.isError) {
+    if (articleUrl && !formatJob && formatCacheAction === "generate") {
       beginFormatPipeline(a.id, articleUrl);
     }
   };
 
   const reformat = () => {
     if (!activeRef.current || !a || formatBusy) return;
-    beginFormatPipeline(a.id, articleUrl);
+    beginFormatPipeline(a.id, articleUrl, true);
   };
 
   const retryFormatted = () => {
@@ -748,7 +752,7 @@ export default function Reader({ onToast, active = true, onCaptureBusyChange, wo
       void generateFormatted(a.id, formatJob.captureId, formatLanguage, runId, formatJob.source);
       return;
     }
-    beginFormatPipeline(a.id, articleUrl);
+    beginFormatPipeline(a.id, articleUrl, Boolean(formattedDraft));
   };
 
   // Recover article-body images the webview fails to load, then hide the
@@ -914,13 +918,6 @@ export default function Reader({ onToast, active = true, onCaptureBusyChange, wo
       (translating ? `<p><em>${t("reader.translating")}</em></p>` : baseBody)
     : baseBody;
   const displayBody = proxiedBody?.source === body ? proxiedBody.html : body;
-  // A short body is a clue, not proof of truncation. Keep the copy tentative
-  // and both follow-up actions manual; do not auto-navigate on this heuristic.
-  const mayOnlyHaveSummary = useMemo(() => {
-    if (!a?.url || a.sourceType !== "rss" || showTranslation) return false;
-    if (showExtracted && a.extractedHtml) return false;
-    return bodyPlainText(a.contentHtml || "").trim().length < 800;
-  }, [a?.url, a?.sourceType, a?.contentHtml, a?.extractedHtml, showExtracted, showTranslation]);
   // Whether the body already opens with its own image/video — if so, the hero
   // thumbnail is suppressed to avoid a redundant top image (issue #97).
   const leadsWithMedia = useMemo(() => bodyLeadsWithMedia(baseBody), [baseBody]);
@@ -1303,17 +1300,6 @@ export default function Reader({ onToast, active = true, onCaptureBusyChange, wo
         <div className="reader-view-switch" role="group" aria-label={t("reader.viewMode")}>
           <button
             type="button"
-            className={readerTab === "reader" ? "active" : ""}
-            title={t("reader.readingMode")}
-            aria-pressed={readerTab === "reader"}
-            disabled={formatJob?.phase === "capturing"}
-            onClick={() => setViewMode("reader")}
-          >
-            <Icon name="text" size={13} />
-            {t("reader.readingMode")}
-          </button>
-          <button
-            type="button"
             className={readerTab === "web" ? "active" : ""}
             title={a.url ? t("reader.tbWebView") : t("reader.noOriginalUrl")}
             aria-label={t("reader.tbWebView")}
@@ -1334,6 +1320,17 @@ export default function Reader({ onToast, active = true, onCaptureBusyChange, wo
           >
             <Icon name="sparkle" size={13}/>
             {t("aiFormatted.tab")}
+          </button>
+          <button
+            type="button"
+            className={readerTab === "reader" ? "active" : ""}
+            title={t("reader.readingMode")}
+            aria-pressed={readerTab === "reader"}
+            disabled={formatJob?.phase === "capturing"}
+            onClick={() => setViewMode("reader")}
+          >
+            <Icon name="text" size={13} />
+            {t("reader.readingMode")}
           </button>
         </div>
         <button type="button" className={`tb-btn ${exportOpen ? "on" : ""}`} title="导出图文资料包（Markdown + 图片）" aria-label="导出图文资料包" aria-expanded={exportOpen} onClick={() => setExportOpen((open) => !open)}><Icon name="arrow-down" size={16}/></button>
@@ -1384,6 +1381,7 @@ export default function Reader({ onToast, active = true, onCaptureBusyChange, wo
               <button type="button" title={t("reader.webReload")} aria-label={t("reader.webReload")} disabled={formatJob?.phase === "capturing" || (!currentPageView?.created && webViewOpening && !currentPageView?.waiting)} onClick={() => currentPageView?.created ? runPageViewAction("reload") : setWebOpenAttempt((attempt) => attempt + 1)}><Icon name="refresh" size={14}/></button>
             </div>
             <span className="reader-webview-url" title={currentPageUrl ?? undefined}>{currentPageUrl ?? t("reader.webUnsafeUrl")}</span>
+            <WebThemeToggle disabled={!active || formatJob?.phase === "capturing"}/>
             {webViewOpening && <span className="reader-web-loading" role="status" title={currentPageView?.waiting ? t("reader.webWaitingHint") : t("common.loading")} aria-label={currentPageView?.waiting ? t("reader.webWaitingShort") : t("common.loading")}><span className="reader-web-spinner" aria-hidden="true"/>{currentPageView?.waiting && <span>{t("reader.webWaitingShort")}</span>}</span>}
           </div>
           {webBanner && currentPageView && <div className="reader-web-notice" role={webBanner === "download" ? "status" : "alert"}>
@@ -1455,25 +1453,6 @@ export default function Reader({ onToast, active = true, onCaptureBusyChange, wo
               </>
             )}
           </div>
-
-          {mayOnlyHaveSummary && (
-            <aside className="reader-summary-hint">
-              <p>{t("reader.summaryOnlyHint")}</p>
-              <div className="reader-summary-actions">
-                <button type="button" onClick={() => setViewMode("web")}>
-                  <Icon name="eye" size={14} />
-                  {t("reader.readOriginalHere")}
-                </button>
-                <button
-                  type="button"
-                  disabled={extract.isPending}
-                  onClick={() => hasExtracted ? setShowExtracted(true) : extract.mutate(a.id)}
-                >
-                  {extract.isPending ? t("reader.extractingFullText") : hasExtracted ? t("reader.showFullText") : t("reader.tbExtractFullText")}
-                </button>
-              </div>
-            </aside>
-          )}
 
           {a.tags.length > 0 && (
             <div className="article-tags">
