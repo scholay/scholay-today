@@ -71,7 +71,7 @@ export function AgentSettings({ onToast }: { onToast: (message: string) => void 
     catch (e) { setError(errorText(e)); } finally { setBusy(false); }
   }
   return <div className="integration-settings">
-    <section className="integration-card"><h3>本机 MCP 服务</h3><p>智能体通过 stdio 连接正在运行的 scholay tody。仅本机访问，不开放网络端口，不暴露密钥或任意命令执行。</p>
+    <section className="integration-card"><h3>本机 MCP 服务</h3><p>智能体通过 stdio 连接正在运行的 scholay today。仅本机访问，不开放网络端口，不暴露密钥或任意命令执行。</p>
       {s ? <><label className="integration-toggle"><span>启用 MCP</span><input type="checkbox" checked={s.enabled} disabled={busy} onChange={(e) => void run(() => integration.libraryPermissions(e.target.checked, s.writable))}/></label><label className="integration-toggle"><span>允许修改订阅和目录</span><input type="checkbox" checked={s.writable} disabled={busy || !s.enabled} onChange={(e) => void run(() => integration.libraryPermissions(s.enabled, e.target.checked))}/></label>
       <small>移除订阅只会隐藏并停止抓取，文章保留；彻底清空资料不向 MCP 开放。</small>
       <details className="integration-config" open><summary>连接配置 · 可复制到支持本机 MCP 的智能体</summary><pre>{JSON.stringify(s.configuration, null, 2)}</pre><button onClick={() => void navigator.clipboard.writeText(JSON.stringify(s.configuration, null, 2)).then(() => onToast("MCP 配置已复制")).catch(() => setError("无法写入剪贴板"))}><Icon name="copy" size={14}/>复制配置</button></details></> : <p role="status">{query.isError ? "无法读取本机服务状态" : "正在读取…"}</p>}

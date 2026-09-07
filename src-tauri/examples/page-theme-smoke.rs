@@ -115,7 +115,7 @@ fn main() {
                     "theme-smoke",
                     tauri::WebviewUrl::External(url.parse().unwrap()),
                 )
-                .title("scholay tody · synthetic webpage theme test")
+                .title("scholay today · synthetic webpage theme test")
                 .inner_size(800.0, 640.0)
                 .visible(false)
                 .data_directory(folder.join("browser"))

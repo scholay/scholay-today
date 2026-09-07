@@ -600,7 +600,9 @@ const CAPTURE_SCRIPT: &str = r#"(() => {
     if (node.nodeType!==Node.ELEMENT_NODE || !visible(node)) return '';
     const tag=node.tagName.toLowerCase();
     if (tag==='img') {
-      const url=safeUrl(node.getAttribute('data-src')||node.getAttribute('data-original')||node.getAttribute('data-lazy-src')||node.currentSrc||node.getAttribute('src')||'');
+      // Older jQuery LazyLoad (used by ScienceNet) stores the real URL in
+      // `original`, without the data- prefix, while src becomes grey.gif.
+      const url=safeUrl(node.getAttribute('data-src')||node.getAttribute('data-original')||node.getAttribute('data-lazy-src')||node.getAttribute('original')||node.currentSrc||node.getAttribute('src')||'');
       const out=url?'<img src="'+esc(url)+'" alt="'+esc(node.getAttribute('alt')||'')+'">':'';htmlSize+=out.length;return out;
     }
     const children=childrenOf(node).map(markup).join('');

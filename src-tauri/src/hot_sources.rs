@@ -155,7 +155,7 @@ fn http_error(error: reqwest::Error) -> String {
     if error.is_timeout() {
         "连接超时；可稍后刷新，原缓存不会删除。".into()
     } else {
-        "网络连接失败；请检查网络或 scholay tody 的代理设置。".into()
+        "网络连接失败；请检查网络或 scholay today 的代理设置。".into()
     }
 }
 async fn body(request: RequestBuilder) -> Result<Vec<u8>, String> {

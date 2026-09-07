@@ -1,7 +1,7 @@
 .workspace-host { height: 100%; width: 100%; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: clip; }
 .workspace-sidebar-heading { min-width: 0; min-height: 30px; flex-shrink: 0; margin: 19px 12px 10px; }
 .workspace-switcher { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; }
-.workspace-brand { margin-bottom: 0; }
+.workspace-brand { align-self: stretch; min-height: 30px; margin-bottom: 0; }
 .workspace-tabs { display: inline-flex; align-items: center; gap: 2px; max-width: 100%; padding: 2px; border: 1px solid var(--hair); border-radius: 7px; background: var(--paper); -webkit-app-region: no-drag; }
 .workspace-tabs button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 0; border-radius: 5px; padding: 3px 11px; background: none; color: var(--muted); font: 500 12px/1.5 var(--ui); white-space: nowrap; cursor: pointer; }
 .workspace-tabs button[aria-pressed="true"] { color: var(--accent); background: var(--accent-soft); }

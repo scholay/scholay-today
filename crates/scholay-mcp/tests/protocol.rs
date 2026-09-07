@@ -75,6 +75,9 @@ async fn scenario(version: &str) {
     }
     let initialized = call(&mut input, &mut output, 1, "initialize", json!({"protocolVersion":version,"capabilities":{},"clientInfo":{"name":"synthetic-ci","version":"1"}})).await;
     assert_eq!(initialized["result"]["protocolVersion"], version);
+    assert_eq!(initialized["result"]["serverInfo"]["name"], "scholay-today");
+    assert_eq!(initialized["result"]["serverInfo"]["title"], "scholay today");
+    assert!(initialized["result"]["instructions"].as_str().unwrap().contains("scholay today"));
     input
         .write_all(b"{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}\n")
         .await

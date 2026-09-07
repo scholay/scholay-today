@@ -14,6 +14,8 @@ import type { ArticleSummary, Feed } from "../types";
 import Icon from "./Icon";
 import ArticleListControls from "./ArticleListControls";
 import ContextMenu, { type MenuEntry } from "./ContextMenu";
+import { batchScope, MAX_BATCH_ARTICLES, uniqueArticles, useBatchExport } from "../lib/batchExport";
+import "./batch-export.css";
 
 const PAGE = 60;
 
@@ -42,6 +44,41 @@ export default function ArticleList({ onToast }: Props) {
   const showCardThumbs = useUi((s) => s.prefs.showCardThumbs);
   const selectedId = useUi((s) => s.selectedArticleId);
   const openArticle = useUi((s) => s.openArticle);
+  const batch = useBatchExport();
+  const scope = batchScope(query, unreadOnly);
+  const selecting = batch.mode && batch.scope === scope;
+  const selectedIds = useMemo(() => new Set(batch.selected.map(a => a.id)), [batch.selected]);
+  const [selectingAll, setSelectingAll] = useState(false);
+  const selectionRequest = useRef(0);
+  const [allSelected, setAllSelected] = useState(false);
+  useEffect(() => {
+    batch.changeScope(scope);
+    selectionRequest.current += 1;
+    setSelectingAll(false); setAllSelected(false);
+  }, [scope]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function toggleSelection() {
+    selectionRequest.current += 1;
+    setSelectingAll(false); setAllSelected(false);
+    batch.changeScope(scope);
+    batch.setMode(!selecting);
+  }
+  async function selectAll() {
+    if (selectingAll) return;
+    if (allSelected) { batch.replaceSelection([]); setAllSelected(false); return; }
+    const request = ++selectionRequest.current;
+    setSelectingAll(true);
+    try {
+      // Query the whole current filtered list, not just the virtualized 60 rows.
+      // Never silently turn “all” into the first N or every feed in the library.
+      const rows = uniqueArticles(await api.listArticles(query, unreadOnly, null, sortOldest, MAX_BATCH_ARTICLES + 1, 0));
+      const live = useUi.getState();
+      if (request !== selectionRequest.current || !useBatchExport.getState().mode || batchScope(live.query, live.unreadOnly) !== scope) return;
+      if (rows.length > MAX_BATCH_ARTICLES) { onToast(`当前列表超过 ${MAX_BATCH_ARTICLES} 篇，请缩小范围或手动勾选；未更改选择。`); return; }
+      batch.replaceSelection(rows); setAllSelected(true);
+    } catch (e) { if (request === selectionRequest.current) reportError(e); }
+    finally { if (request === selectionRequest.current) setSelectingAll(false); }
+  }
 
   const feeds = useQuery({ queryKey: ["feeds"], queryFn: api.listFeeds });
   const feedById = useMemo(() => {
@@ -77,6 +114,10 @@ export default function ArticleList({ onToast }: Props) {
     () => browse.data?.pages.flat() ?? [],
     [browse.data],
   );
+  useEffect(() => {
+    // Refreshes may add new rows after a bounded select-all snapshot.
+    if (allSelected && items.some(article => !selectedIds.has(article.id))) setAllSelected(false);
+  }, [allSelected, items, selectedIds]);
   // Global row offset of `items[0]` — the param of the earliest loaded page
   // (which can sit below the anchor once the user pages upward). Global index
   // of `items[k]` is `baseOffset + k`, the bridge between the virtual list's
@@ -301,6 +342,7 @@ export default function ArticleList({ onToast }: Props) {
   };
 
   const onHover = (a: ArticleSummary, e: React.MouseEvent) => {
+    if (selecting) return;
     if (
       e.target instanceof Element &&
       e.target.closest("[data-no-hover-preview]")
@@ -383,6 +425,7 @@ export default function ArticleList({ onToast }: Props) {
 
   // Arrow-key navigation for the listbox (in addition to the global j/k).
   const onListKeyDown = (e: React.KeyboardEvent) => {
+    if (e.target instanceof HTMLInputElement) return;
     if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key)) return;
     if (items.length === 0) return;
     e.preventDefault();
@@ -402,7 +445,8 @@ export default function ArticleList({ onToast }: Props) {
     <div className="list" role="region" aria-labelledby="article-list-title">
       <div className="list-header" {...(isMac && { "data-tauri-drag-region": true })}>
         <ArticleListControls sortOldest={sortOldest} unreadOnly={unreadOnly}
-          onToggleSort={toggleSort} onToggleUnreadOnly={toggleUnreadOnly} onMarkAll={markAll}/>
+          onToggleSort={toggleSort} onToggleUnreadOnly={toggleUnreadOnly} onMarkAll={markAll}
+          selecting={selecting} onToggleSelection={toggleSelection}/>
         <h1 className="list-title" id="article-list-title">
           {/* Smart views re-translate live; feed/folder/tag keep their own title. */}
           <span className="list-title-text" title={query.kind === "feed" || query.kind === "folder" || query.kind === "tag" ? queryLabel : t(`smart.${query.kind}`)}>{query.kind === "feed" ||
@@ -417,6 +461,8 @@ export default function ArticleList({ onToast }: Props) {
           </span>
         </h1>
       </div>
+
+      {selecting && <div className="batch-selection-bar" role="group" aria-label="批量选择文章"><span aria-live="polite">已选 {batch.selected.length} 篇</span><label title={`选择当前来源与筛选条件下的全部文章，最多 ${MAX_BATCH_ARTICLES} 篇`}><input type="checkbox" checked={allSelected} disabled={selectingAll} onChange={() => void selectAll()}/>{selectingAll ? "正在选择…" : "全选当前列表"}</label><button onClick={toggleSelection}>取消</button></div>}
 
       <div className="list-scroll" ref={scrollRef}>
         {browse.isLoading && (
@@ -460,11 +506,11 @@ export default function ArticleList({ onToast }: Props) {
 
         {!browse.isLoading && items.length > 0 && (
           <div
-            role="listbox"
+            role={selecting ? "list" : "listbox"}
             tabIndex={0}
             aria-labelledby="article-list-title"
             aria-activedescendant={
-              selectedId != null ? `option-article-${selectedId}` : undefined
+              !selecting && selectedId != null ? `option-article-${selectedId}` : undefined
             }
             onKeyDown={onListKeyDown}
             style={{
@@ -502,10 +548,10 @@ export default function ArticleList({ onToast }: Props) {
                   <div
                     className={`art ${viewMode === "card" ? "card" : ""} ${
                       selectedId === a.id ? "active" : ""
-                    } ${a.isRead ? "read" : ""}`}
-                    role="option"
+                    } ${a.isRead ? "read" : ""} ${selecting ? "batch-selectable" : ""} ${selecting && selectedIds.has(a.id) ? "batch-checked" : ""}`}
+                    role={selecting ? "listitem" : "option"}
                     id={`option-article-${a.id}`}
-                    aria-selected={selectedId === a.id}
+                    aria-selected={selecting ? undefined : selectedId === a.id}
                     onClick={() => openArticle(a.id)}
                     onContextMenu={(e) => {
                       e.preventDefault();
@@ -514,6 +560,11 @@ export default function ArticleList({ onToast }: Props) {
                     onMouseEnter={(e) => onHover(a, e)}
                     onMouseLeave={leaveHover}
                   >
+                    {selecting && <label className="batch-row-check" data-no-hover-preview onClick={e => e.stopPropagation()} onKeyDown={e => e.stopPropagation()}><input type="checkbox" aria-label={`选择文章：${a.title}`} checked={selectedIds.has(a.id)} onChange={() => {
+                      selectionRequest.current += 1; setSelectingAll(false); setAllSelected(false);
+                      if (!selectedIds.has(a.id) && batch.selected.length >= MAX_BATCH_ARTICLES) { onToast(`每批最多选择 ${MAX_BATCH_ARTICLES} 篇`); return; }
+                      batch.toggle(a);
+                    }}/></label>}
                     {viewMode === "card" && showCardThumbs && (
                       <CardThumb article={a} />
                     )}
@@ -548,6 +599,8 @@ export default function ArticleList({ onToast }: Props) {
         )}
         <div style={{ height: 60 }} />
       </div>
+
+      {selecting && <div className="batch-selection-footer"><span>已选 {batch.selected.length} 篇</span><button className="batch-primary" disabled={!batch.selected.length} onClick={() => { leaveHover(); batch.review(); }}><Icon name="arrow-down" size={13}/>{batch.running ? "查看导出进度" : "导出所选…"}</button></div>}
 
       {hover && <HoverPreview {...hover} feedTitle={hover.article.feedTitle} />}
 

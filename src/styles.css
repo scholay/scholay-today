@@ -462,6 +462,7 @@ button { font-family: inherit; }
 .app-brand {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 9px;
   min-width: 0;
   max-width: 100%;
@@ -470,7 +471,7 @@ button { font-family: inherit; }
 }
 .app-brand-logo { width: 24px; height: 25px; object-fit: contain; flex-shrink: 0; }
 :root[data-mode="dark"] .app-brand-logo { filter: invert(1); }
-.app-brand-name { font: 600 17px/1.4 var(--ui); letter-spacing: -.025em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.app-brand-name { font: 600 17px/1.4 var(--ui); letter-spacing: .055em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sb-brand {
   display: flex;
   align-items: center;

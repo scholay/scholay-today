@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<opml version="2.0">
+  <head><title>学术会议·中文与英文</title></head>
+  <body>
+    <outline text="学术会议·中文">
+      <outline type="rss" text="科学网·会议预告（含商业征稿）" xmlUrl="http://127.0.0.1:8768/sciencenet.xml"/>
+      <outline type="rss" text="中国化学会·会议日历" xmlUrl="http://127.0.0.1:8768/chemsoc.xml"/>
+      <outline type="rss" text="中国社会科学网·会议动态（含往届）" xmlUrl="http://127.0.0.1:8768/cssn.xml"/>
+      <outline type="rss" text="CCF 秀湖·会议日历（含往届）" xmlUrl="http://127.0.0.1:8768/ccf.xml"/>
+    </outline>
+    <outline text="学术会议·英文">
+      <outline type="rss" text="WikiCFP · Artificial Intelligence" xmlUrl="http://www.wikicfp.com/cfp/rss?cat=artificial%20intelligence"/>
+      <outline type="rss" text="WikiCFP · Computer Science" xmlUrl="http://www.wikicfp.com/cfp/rss?cat=computer%20science"/>
+      <outline type="rss" text="WikiCFP · Social Sciences" xmlUrl="http://www.wikicfp.com/cfp/rss?cat=social%20sciences"/>
+      <outline type="rss" text="Calenda · English 学术活动" xmlUrl="https://calenda.org/feed.php?f2lang[]=66"/>
+    </outline>
+  </body>
+</opml>

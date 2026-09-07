@@ -169,7 +169,7 @@ pub async fn platform_action(
             } else {
                 let url = url::Url::parse("http://127.0.0.1:8080/settings#login").unwrap();
                 WebviewWindowBuilder::new(&app, "platform-wechat-auth", WebviewUrl::External(url))
-                    .title("微信公众号授权 · scholay tody")
+                    .title("微信公众号授权 · scholay today")
                     .inner_size(840.0, 760.0)
                     .min_inner_size(560.0, 520.0)
                     .on_navigation(|url| {

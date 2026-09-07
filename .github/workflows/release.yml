@@ -33,4 +33,4 @@ jobs:
           $Installer = (Get-ChildItem target/release/bundle/nsis/*.exe).FullName
           if (-not $Installer) { throw 'No installer was produced' }
           $Installer | ForEach-Object { "{0}  {1}" -f (Get-FileHash $_ -Algorithm SHA256).Hash.ToLowerInvariant(), (Split-Path $_ -Leaf) } | Set-Content SHA256SUMS.txt
-          gh release create $env:GITHUB_REF_NAME $Installer SHA256SUMS.txt --draft --generate-notes --title "scholay tody $env:GITHUB_REF_NAME"
+          gh release create $env:GITHUB_REF_NAME $Installer SHA256SUMS.txt --draft --generate-notes --title "scholay today $env:GITHUB_REF_NAME"

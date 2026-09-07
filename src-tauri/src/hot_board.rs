@@ -432,7 +432,7 @@ pub(crate) fn require_main(view: &Webview) -> Result<(), String> {
     {
         Ok(())
     } else {
-        Err("Hot-board access is available only from the local scholay tody workspace.".into())
+        Err("Hot-board access is available only from the local scholay today workspace.".into())
     }
 }
 

@@ -1,8 +1,8 @@
 # scholay-today
 
 Local customized desktop reader: RSS, domestic/international trends, native Web
-view, and AI formatted Markdown. The repository is **scholay-today**; the existing
-desktop app name remains **scholay tody** in this repository-only rename.
+view, and AI formatted Markdown. The app is **scholay today**, the repository and
+MCP server name are **scholay-today**, and the sidebar uses the supplied mark + **SCHOLAY**.
 
 [![CI](https://github.com/scholay/scholay-today/actions/workflows/ci.yml/badge.svg)](https://github.com/scholay/scholay-today/actions/workflows/ci.yml)
 
@@ -24,10 +24,23 @@ pnpm build:desktop
 
 The supplied mark is preserved in `public/scholay-logo.png`; regenerate app/tray
 assets with `node scripts/gen-branding.mjs` (ImageMagick and pnpm required).
-The desktop bundle is `scholay tody.app` on macOS and an NSIS installer on Windows. The legacy `com.thomas.papr` data
+The desktop bundle is `scholay today.app` on macOS and an NSIS installer on Windows. The legacy `com.thomas.papr` data
 identifier, `papr-desktop` binary, CLI, and `papr://` links remain compatible;
 no feed or AI-formatted database migration is needed. Upstream automatic updates
 remain disabled so they cannot overwrite local changes.
+
+The MCP executable remains `scholay-mcp`; Settings generates the `scholay-today`
+client entry. After renaming an installed macOS bundle, update existing MCP client
+commands to `/Applications/scholay today.app/Contents/Resources/mcp/scholay-mcp`.
+Windows credential and local-pipe identifiers retain their legacy spelling for
+compatibility. New exports use `Downloads/scholay today`; existing export folders
+and previously saved Markdown are left untouched.
+
+macOS 内置网页允许访问 HTTP-only 的出版者网站（例如 WikiCFP）。
+`src-tauri/Info.plist` 仅为 WebKit 网页内容设置 ATS 兼容例外，不全局放开
+原生 URLSession 网络请求，不跳过 HTTPS 证书校验，也不授予远程网页 Tauri IPC 权限。
+HTTP 网页内容未加密，不应在其中输入密码或其他敏感信息；网络故障、证书错误、
+登录限制和网站自身反爬仍可能影响访问。Windows WebView2 不使用这项 macOS 配置。
 
 Based on [Papr](https://github.com/l0ng-ai/papr), under the original [MIT license](LICENSE).
 The upstream installation instructions below are retained for reference and

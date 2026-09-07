@@ -53,7 +53,7 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           mkdir -p artifacts
-          ditto -c -k --sequesterRsrc --keepParent 'target/release/bundle/macos/scholay tody.app' artifacts/scholay-today-macos.zip
+          ditto -c -k --sequesterRsrc --keepParent 'target/release/bundle/macos/scholay today.app' artifacts/scholay-today-macos.zip
           shasum -a 256 artifacts/*.zip > artifacts/SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
         with:

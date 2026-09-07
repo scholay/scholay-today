@@ -11,6 +11,7 @@ pub use papr_core::{ai, db, error, extraction, ingestion, models, opml, sanitize
 mod ai_formatted;
 mod article_document;
 mod article_export;
+mod batch_export;
 mod backing;
 mod commands;
 mod library_service;
@@ -252,6 +253,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             article_export::export_article_bundle,
+            batch_export::preview_article_bundles,
+            batch_export::export_article_bundles,
             library_service::library_status,
             library_service::library_permissions,
             library_service::library_apply,
@@ -343,5 +346,5 @@ pub fn run() {
             page_view::set_page_view_theme,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running scholay tody");
+        .expect("error while running scholay today");
 }

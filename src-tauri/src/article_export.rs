@@ -15,7 +15,15 @@ use std::{
 };
 use tauri::{AppHandle, Manager, State, Webview};
 static RUNNING: Mutex<bool> = Mutex::new(false);
-struct Guard;
+pub(crate) struct Guard;
+pub(crate) fn acquire() -> Result<Guard, String> {
+    let mut running = RUNNING.lock().unwrap_or_else(|e| e.into_inner());
+    if *running {
+        return Err("已有图文导出任务，请等待完成".into());
+    }
+    *running = true;
+    Ok(Guard)
+}
 impl Drop for Guard {
     fn drop(&mut self) {
         *RUNNING.lock().unwrap_or_else(|e| e.into_inner()) = false;
@@ -88,6 +96,11 @@ pub(crate) fn saved(
         .transpose()
 }
 fn cached(c: &Connection, article_id: i64) -> Result<Document, String> {
+    let doc = cached_document(c, article_id)?;
+    store(c, &doc)?;
+    Ok(doc)
+}
+pub(crate) fn cached_document(c: &Connection, article_id: i64) -> Result<Document, String> {
     let article = db::get_article(c, article_id).map_err(|_| "无法读取文章")?;
     let html = article
         .extracted_html
@@ -95,7 +108,6 @@ fn cached(c: &Connection, article_id: i64) -> Result<Document, String> {
         .or(article.content_html.as_deref())
         .unwrap_or("");
     let doc=article_document::parse(Document{schema_version:1,capture_id:format!("cached-{}",uuid::Uuid::new_v4()),article_id,title:article.title,source_url:article.url.unwrap_or_default(),captured_at:chrono::Utc::now().to_rfc3339(),source_kind:"cached_article".into(),author:article.author,published_at:article.published_at,truncated:false,blocks:vec![],assets:vec![],warnings:vec!["本包来自本地文章缓存，不代表网页全文。若内容只有摘要，请在 Web 模式加载原文后重新导出。".into()]},html);
-    store(c, &doc)?;
     Ok(doc)
 }
 pub(crate) fn image_extension(bytes: &[u8]) -> Option<&'static str> {
@@ -142,13 +154,18 @@ pub(crate) fn package(
                 .map_err(|_| "无法编码文章")?
                 .as_bytes(),
         )?;
-        let manifest = json!({"schemaVersion":1,"product":"scholay tody","sourceUrl":doc.source_url,"captureId":doc.capture_id,"capturedAt":doc.captured_at,"sourceKind":doc.source_kind,"truncated":doc.truncated,"assets":doc.assets,"warnings":doc.warnings,"aiIncluded":ai.is_some(),"offlineImages":true});
+        let manifest = json!({"schemaVersion":1,"product":"scholay today","sourceUrl":doc.source_url,"captureId":doc.capture_id,"capturedAt":doc.captured_at,"sourceKind":doc.source_kind,"truncated":doc.truncated,"assets":doc.assets,"warnings":doc.warnings,"aiIncluded":ai.is_some(),"offlineImages":doc.assets.iter().all(|asset| asset.path.is_some())});
         write(
             "manifest.json",
             serde_json::to_string_pretty(&manifest).unwrap().as_bytes(),
         )?;
         if let Some(ai) = ai {
             let mut text = ai.to_owned();
+            for asset in &doc.assets {
+                if let Some(path) = &asset.path {
+                    text = text.replace(&asset.original_url, path);
+                }
+            }
             text.push_str("\n\n## 原文图片索引\n\n> 图片按原文顺序列出，不代表 AI 已分析图片。正文中的准确位置请参照 article.md。\n\n");
             for asset in &doc.assets {
                 if let Some(path) = &asset.path {
@@ -187,14 +204,7 @@ pub async fn export_article_bundle(
     include_ai: bool,
 ) -> Result<Value, String> {
     hot_board::require_main(&webview)?;
-    {
-        let mut running = RUNNING.lock().unwrap_or_else(|e| e.into_inner());
-        if *running {
-            return Err("已有图文导出任务，请等待完成".into());
-        }
-        *running = true;
-    }
-    let _guard = Guard;
+    let _guard = acquire()?;
     let mut doc = match source.as_str() {
         "web" => {
             let url = {
@@ -251,6 +261,45 @@ pub async fn export_article_bundle(
         doc.warnings
             .push("没有与本次快照严格对应的 AI 整理稿；未混入其他版本。".into());
     }
+    let files = download_assets(&mut doc, true, 64 * 1024 * 1024).await;
+    let images = doc.assets.iter().filter(|a| a.status == "saved").count();
+    let missing = doc.assets.len() - images;
+    let directory = app
+        .path()
+        .download_dir()
+        .map_err(|_| "无法访问下载目录")?
+        .join("scholay today");
+    std::fs::create_dir_all(&directory).map_err(|_| "无法创建图文导出目录")?;
+    let title: String = doc
+        .title
+        .chars()
+        .filter(|c| c.is_alphanumeric() || matches!(c, ' ' | '-' | '_'))
+        .take(50)
+        .collect();
+    let path = directory.join(format!(
+        "{}-{}.zip",
+        if title.is_empty() { "article" } else { &title },
+        uuid::Uuid::new_v4().simple()
+    ));
+    let count = doc.blocks.len();
+    let warnings = doc.warnings.clone();
+    let capture = doc.capture_id.clone();
+    let saved_path = path.clone();
+    tokio::task::spawn_blocking(move || package(&doc, ai.as_deref(), &files, &saved_path))
+        .await
+        .map_err(|_| "导出任务异常结束")??;
+    Ok(json!({"path":path,"images":images,"missingImages":missing,"blocks":count,"warnings":warnings,"captureId":capture}))
+}
+
+/// Shared bounded image path. Never holds the database lock or invokes AI.
+pub(crate) async fn download_assets(doc: &mut Document, enabled: bool, budget: usize) -> Vec<(String, Vec<u8>)> {
+    for asset in &mut doc.assets {
+        asset.path = None;
+        asset.sha256 = None;
+        asset.error = None;
+        asset.status = if enabled { "pending" } else { "remote" }.into();
+    }
+    if !enabled { return vec![]; }
     let limit = Arc::new(tokio::sync::Semaphore::new(4));
     let mut jobs = tokio::task::JoinSet::new();
     for (index, asset) in doc.assets.iter().enumerate() {
@@ -276,7 +325,7 @@ pub async fn export_article_bundle(
                 match result {
                     Ok((bytes, _, _))
                         if image_extension(&bytes).is_some()
-                            && total + bytes.len() <= 64 * 1024 * 1024 =>
+                            && total + bytes.len() <= budget =>
                     {
                         total += bytes.len();
                         let hash = format!("{:x}", Sha256::digest(&bytes));
@@ -291,7 +340,7 @@ pub async fn export_article_bundle(
                     Ok(_) => {
                         asset.status = "failed".into();
                         asset.error =
-                            Some("不是支持的图片格式，或达到导出体积上限（64 MB）".into());
+                            Some("不是支持的图片格式，或达到图片导出体积上限".into());
                     }
                     Err(error) => {
                         asset.status = "failed".into();
@@ -320,33 +369,7 @@ pub async fn export_article_bundle(
             "{missing} 张图片未能保存，原始地址和失败原因保留在 manifest.json。"
         ));
     }
-    let directory = app
-        .path()
-        .download_dir()
-        .map_err(|_| "无法访问下载目录")?
-        .join("scholay tody");
-    std::fs::create_dir_all(&directory).map_err(|_| "无法创建图文导出目录")?;
-    let title: String = doc
-        .title
-        .chars()
-        .filter(|c| c.is_alphanumeric() || matches!(c, ' ' | '-' | '_'))
-        .take(50)
-        .collect();
-    let path = directory.join(format!(
-        "{}-{}.zip",
-        if title.is_empty() { "article" } else { &title },
-        uuid::Uuid::new_v4().simple()
-    ));
-    let count = doc.blocks.len();
-    let warnings = doc.warnings.clone();
-    let capture = doc.capture_id.clone();
-    let saved_path = path.clone();
-    tokio::task::spawn_blocking(move || package(&doc, ai.as_deref(), &files, &saved_path))
-        .await
-        .map_err(|_| "导出任务异常结束")??;
-    Ok(
-        json!({"path":path,"images":images,"missingImages":missing,"blocks":count,"warnings":warnings,"captureId":capture}),
-    )
+    files
 }
 
 #[cfg(test)]

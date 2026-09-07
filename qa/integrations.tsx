@@ -10,7 +10,7 @@ import zh from "../src/locales/zh.json";
 import "@fontsource-variable/inter-tight";
 import "../src/styles.css";
 
-const configuration = { mcpServers: { "scholay-tody": { command: "/Applications/scholay tody.app/Contents/Resources/mcp/scholay-mcp", args: ["--socket", "/Users/example/Library/Application Support/com.thomas.papr/agent.sock"] } } };
+const configuration = { mcpServers: { "scholay-today": { command: "/Applications/scholay today.app/Contents/Resources/mcp/scholay-mcp", args: ["--socket", "/Users/example/Library/Application Support/com.thomas.papr/agent.sock"] } } };
 mockIPC((command) => {
   if (command.includes("version")) return "0.15.0";
   if (command === "list_feeds") return [];

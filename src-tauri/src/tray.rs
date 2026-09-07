@@ -106,25 +106,25 @@ fn labels(lang: &str, unread: i64, last: Option<&str>) -> Labels {
     };
     let (open, refresh, mark_all, settings, quit) = match lang {
         "zh" => (
-            "打开 scholay tody",
+            "打开 scholay today",
             "立即刷新全部",
             "全部标为已读",
             "设置…",
-            "退出 scholay tody",
+            "退出 scholay today",
         ),
         "ja" => (
-            "scholay tody を開く",
+            "scholay today を開く",
             "今すぐすべて更新",
             "すべて既読にする",
             "設定…",
-            "scholay tody を終了",
+            "scholay today を終了",
         ),
         _ => (
-            "Open scholay tody",
+            "Open scholay today",
             "Refresh All Now",
             "Mark All as Read",
             "Settings…",
-            "Quit scholay tody",
+            "Quit scholay today",
         ),
     };
     Labels {
@@ -215,7 +215,7 @@ pub fn build(app: &AppHandle, lang: &str, unread: i64, last: Option<&str>) -> ta
     let tray = TrayIconBuilder::with_id(TRAY_ID)
         .icon(Image::from_bytes(ICON)?)
         .icon_as_template(true)
-        .tooltip("scholay tody")
+        .tooltip("scholay today")
         .menu(&menu)
         .show_menu_on_left_click(true)
         .on_menu_event(handle_event)

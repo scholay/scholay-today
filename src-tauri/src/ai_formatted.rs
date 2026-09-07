@@ -73,7 +73,7 @@ fn require_main(view: &Webview) -> Result<(), String> {
     {
         Ok(())
     } else {
-        Err("Page formatting is available only from the local scholay tody reader.".into())
+        Err("Page formatting is available only from the local scholay today reader.".into())
     }
 }
 

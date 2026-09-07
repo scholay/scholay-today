@@ -1,7 +1,7 @@
 [package]
 name = "papr"
 version = "0.16.0"
-description = "scholay tody — a local-first RSS and trends reader"
+description = "scholay today — a local-first RSS and trends reader"
 authors = ["you"]
 edition = "2021"
 # Disable binary auto-discovery so Cargo does not also infer a `papr` binary
@@ -16,7 +16,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 
 # Distinct binary name so the desktop app's cargo output (`papr-desktop`) does
 # not collide with the agent CLI's `papr` binary in the shared workspace target
-# dir. The bundled product is "scholay tody" (tauri.conf.json productName);
+# dir. The bundled product is "scholay today" (tauri.conf.json productName);
 # the binary and package names stay stable for existing local tooling.
 [[bin]]
 name = "papr-desktop"

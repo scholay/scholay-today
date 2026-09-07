@@ -121,6 +121,9 @@ fn walk(node: NodeRef<'_, Node>, doc: &mut Document, buffer: &mut String, depth:
                 push(doc, "paragraph", buffer, None);
                 if let Some(url) = el
                     .attr("data-src")
+                    .or_else(|| el.attr("data-original"))
+                    .or_else(|| el.attr("data-lazy-src"))
+                    .or_else(|| el.attr("original"))
                     .or_else(|| el.attr("src"))
                     .and_then(|u| link(u, &doc.source_url))
                 {
@@ -322,7 +325,7 @@ pub fn parse(mut doc: Document, html: &str) -> Document {
 }
 pub fn markdown(doc: &Document) -> String {
     let scalar = |s: &str| serde_json::to_string(s).unwrap();
-    let mut out=format!("---\ntitle: {}\nsource: {}\ncaptured_at: {}\ncapture_id: {}\nsource_kind: {}\ntruncated: {}\ntags: [scholay-tody]\n---\n\n# {}\n\n",scalar(&doc.title),scalar(&doc.source_url),scalar(&doc.captured_at),scalar(&doc.capture_id),scalar(&doc.source_kind),doc.truncated,escape(&doc.title));
+    let mut out=format!("---\ntitle: {}\nsource: {}\ncaptured_at: {}\ncapture_id: {}\nsource_kind: {}\ntruncated: {}\ntags: [scholay-today]\n---\n\n# {}\n\n",scalar(&doc.title),scalar(&doc.source_url),scalar(&doc.captured_at),scalar(&doc.capture_id),scalar(&doc.source_kind),doc.truncated,escape(&doc.title));
     for warning in &doc.warnings {
         out.push_str(&format!("> [!warning]\n> {}\n\n", escape(warning)));
     }

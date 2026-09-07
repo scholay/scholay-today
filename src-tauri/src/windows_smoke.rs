@@ -51,7 +51,7 @@ pub fn run() {
         std::thread::spawn(move || { std::thread::sleep(std::time::Duration::from_secs(40)); eprintln!("WebView2 fixture timed out"); std::process::exit(2); });
         std::thread::spawn(move || {
         let created = tauri::WebviewWindowBuilder::new(&window_host, "windows-smoke", tauri::WebviewUrl::External(url.parse().unwrap()))
-            .title("scholay tody · synthetic WebView2 verification").inner_size(800.0, 640.0)
+            .title("scholay today · synthetic WebView2 verification").inner_size(800.0, 640.0)
             .data_directory(folder.join("browser"))
             .on_page_load(move |window, payload| {
                 if !matches!(payload.event(), PageLoadEvent::Finished) || once.swap(true, Ordering::AcqRel) { return; }

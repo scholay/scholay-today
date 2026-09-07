@@ -32,16 +32,19 @@ try:
     send({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "scholay-live-readonly-qa", "version": "1"}}})
     initialized = read(1)
     assert "result" in initialized
+    server_info = initialized["result"]["serverInfo"]
+    assert server_info["name"] == "scholay-today", server_info
+    assert server_info["title"] == "scholay today", server_info
     send({"jsonrpc": "2.0", "method": "notifications/initialized"})
     send({"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "library_list", "arguments": {}}})
     result = read(2)["result"]
     if result.get("isError"):
         message = " ".join(item.get("text", "") for item in result["content"])
         assert "MCP is disabled" in message, message
-        print(json.dumps({"passed": True, "realBridge": True, "disabledGuard": "passed", "writesPerformed": 0}))
+        print(json.dumps({"passed": True, "serverInfo": server_info, "realBridge": True, "disabledGuard": "passed", "writesPerformed": 0}))
     else:
         data = result["structuredContent"]
-        print(json.dumps({"passed": True, "realBridge": True, "feeds": len(data["feeds"]), "folders": len(data["folders"]), "revision": data["revision"], "writesPerformed": 0}))
+        print(json.dumps({"passed": True, "serverInfo": server_info, "realBridge": True, "feeds": len(data["feeds"]), "folders": len(data["folders"]), "revision": data["revision"], "writesPerformed": 0}))
 finally:
     process.terminate()
     process.wait(timeout=5)

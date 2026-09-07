@@ -1,6 +1,6 @@
 {
   "app": {
-    "windows": [{ "label": "main", "title": "scholay tody", "width": 1280, "height": 820, "minWidth": 920, "minHeight": 560, "backgroundColor": "#FBF9F3", "decorations": true }]
+    "windows": [{ "label": "main", "title": "scholay today", "width": 1280, "height": 820, "minWidth": 920, "minHeight": 560, "backgroundColor": "#FBF9F3", "decorations": true }]
   },
   "bundle": {
     "targets": ["nsis"],

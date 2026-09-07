@@ -78,7 +78,7 @@ pub async fn library_status(
     Ok(
         json!({"enabled":db::setting_flag(&c,"mcp_enabled",false),"writable":db::setting_flag(&c,"mcp_writable",false),
       "revision":library::revision(&c).map_err(|e|e.to_string())?,"archived":library::archived(&c).map_err(|e|e.to_string())?,
-      "history":library::history(&c).map_err(|e|e.to_string())?,"configuration":{"mcpServers":{"scholay-tody":{"command":executable,"args":["--socket",socket]}}}}),
+      "history":library::history(&c).map_err(|e|e.to_string())?,"configuration":{"mcpServers":{"scholay-today":{"command":executable,"args":["--socket",socket]}}}}),
     )
 }
 

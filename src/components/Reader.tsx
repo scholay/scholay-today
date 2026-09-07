@@ -25,6 +25,8 @@ import type { ArticleDetail, PageCapture } from "../types";
 import AIFormatted from "./AIFormatted";
 import WebThemeToggle from "./WebThemeToggle";
 import ArticleExportPanel from "./ArticleExportPanel";
+import BatchExportPanel from "./BatchExportPanel";
+import { useBatchExport } from "../lib/batchExport";
 import ReaderViewOutlet, { readerSummaryKey, readerViewKey } from "./ReaderViewOutlet";
 import Icon from "./Icon";
 import TagPicker from "./TagPicker";
@@ -265,6 +267,8 @@ export default function Reader({ onToast, active = true, onCaptureBusyChange, wo
   }, [id]);
   const [pageViewState, setPageViewState] = useState<PageViewState | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
+  const batchExportOpen = useBatchExport(s => s.open);
+  useEffect(() => { if (batchExportOpen) setExportOpen(false); }, [batchExportOpen]);
   const pageViewControllerRef = useRef<{
     requestId: string;
     articleId: number;
@@ -1133,6 +1137,7 @@ export default function Reader({ onToast, active = true, onCaptureBusyChange, wo
     return (
       <div className="reader" role="main">
         {(isMac || (focusMode && workspaceSwitch)) && <div className="reader-toolbar" data-tauri-drag-region>{focusMode && workspaceSwitch}</div>}
+        <BatchExportPanel/>
         <div className="empty" style={{ flex: 1 }}>
           <div className="glyph">
             <Icon name="rss" size={22} />
@@ -1154,6 +1159,7 @@ export default function Reader({ onToast, active = true, onCaptureBusyChange, wo
     return (
       <div className="reader" role="main">
         {(isMac || (focusMode && workspaceSwitch)) && <div className="reader-toolbar" data-tauri-drag-region>{focusMode && workspaceSwitch}</div>}
+        <BatchExportPanel/>
         {article.isError ? (
           <div className="empty" style={{ flex: 1 }}>
             <div className="glyph">
@@ -1333,7 +1339,7 @@ export default function Reader({ onToast, active = true, onCaptureBusyChange, wo
             {t("reader.readingMode")}
           </button>
         </div>
-        <button type="button" className={`tb-btn ${exportOpen ? "on" : ""}`} title="导出图文资料包（Markdown + 图片）" aria-label="导出图文资料包" aria-expanded={exportOpen} onClick={() => setExportOpen((open) => !open)}><Icon name="arrow-down" size={16}/></button>
+        <button type="button" className={`tb-btn ${exportOpen ? "on" : ""}`} title="导出当前文章的图文资料包（Markdown + 图片）" aria-label="导出当前文章图文资料包" aria-expanded={exportOpen} onClick={() => { useBatchExport.getState().setOpen(false); setExportOpen((open) => !open); }}><Icon name="arrow-down" size={16}/></button>
         {a.url && (
           <button
             className="tb-btn"
@@ -1347,6 +1353,7 @@ export default function Reader({ onToast, active = true, onCaptureBusyChange, wo
         )}
       </div>
 
+      <BatchExportPanel/>
       {exportOpen && <ArticleExportPanel key={`${a.id}:${readerTab}`} articleId={a.id} source={readerTab === "reader" ? "reading" : readerTab} requestId={pageViewControllerRef.current?.articleId === a.id ? pageViewControllerRef.current.requestId : null} captureId={formattedDraft?.articleId === a.id ? formattedDraft.captureId : null} webReady={!!currentPageView?.created && !currentPageView.loading && !currentPageView.error} onClose={() => setExportOpen(false)} onToast={onToast}/>}
 
       <ReaderViewOutlet

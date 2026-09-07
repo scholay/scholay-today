@@ -81,7 +81,7 @@ pub async fn wechat_connector_status(webview: Webview) -> Result<WechatConnector
         .as_ref()
         .is_some_and(|url| trusted_main_origin(webview.label(), url));
     if !trusted {
-        return Err("Local WechRss status is available only from the scholay tody workspace.".into());
+        return Err("Local WechRss status is available only from the scholay today workspace.".into());
     }
     Ok(WechatConnectorStatus {
         reachable: probe_wechat_connector().await,

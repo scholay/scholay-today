@@ -1,6 +1,6 @@
 # Local hot-board adapters
 
-scholay tody's optional hot board adapts public-source extraction strategies and endpoint
+scholay today's optional hot board adapts public-source extraction strategies and endpoint
 schemas from the following MIT projects. It does not embed their hosted service,
 login system, telemetry, cookies, or user accounts. The Rust cache and desktop UI
 run locally on macOS or Windows; normal requests go to the original public platforms.

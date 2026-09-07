@@ -1,12 +1,14 @@
 import { useTranslation } from "react-i18next";
 import Icon from "./Icon";
 
-export default function ArticleListControls({ sortOldest, unreadOnly, onToggleSort, onToggleUnreadOnly, onMarkAll }: {
+export default function ArticleListControls({ sortOldest, unreadOnly, onToggleSort, onToggleUnreadOnly, onMarkAll, selecting, onToggleSelection }: {
   sortOldest: boolean;
   unreadOnly: boolean;
   onToggleSort: () => void;
   onToggleUnreadOnly: () => void;
   onMarkAll: () => void;
+  selecting?: boolean;
+  onToggleSelection?: () => void;
 }) {
   const { t } = useTranslation();
   const sortLabel = sortOldest ? t("articleList.oldestFirst") : t("articleList.newestFirst");
@@ -17,6 +19,7 @@ export default function ArticleListControls({ sortOldest, unreadOnly, onToggleSo
       <Icon name={sortOldest ? "arrow-up" : "arrow-down"} size={12}/>
       <span>{sortLabel}</span>
     </button>
+    {onToggleSelection && <button className={`list-meta-btn list-batch-toggle ${selecting ? "on" : ""}`} onClick={onToggleSelection} title="多选文章并批量导出" aria-label="多选文章" aria-pressed={!!selecting}><Icon name="check-all" size={13}/><span>多选</span></button>}
     <button className={`list-meta-btn ${unreadOnly ? "on" : ""}`} onClick={onToggleUnreadOnly}
       title={t("articleList.hideRead")} aria-label={filterLabel} aria-pressed={unreadOnly}>
       <Icon name={unreadOnly ? "eye-off" : "eye"} size={12}/>

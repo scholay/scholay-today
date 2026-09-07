@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "scholay tody",
+  "productName": "scholay today",
   "version": "0.16.0",
   "identifier": "com.thomas.papr",
   "mainBinaryName": "papr-desktop",
@@ -14,7 +14,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "scholay tody",
+        "title": "scholay today",
         "width": 1280,
         "height": 820,
         "minWidth": 920,
@@ -38,6 +38,7 @@
   },
   "bundle": {
     "active": true,
+    "macOS": { "infoPlist": "Info.plist" },
     "resources": { "../THIRD_PARTY_HOTBOARD.md": "THIRD_PARTY_HOTBOARD.md", "../LICENSE": "LICENSE", "../target/bundle-resources/mcp/": "mcp/" },
     "createUpdaterArtifacts": false,
     "targets": "all",

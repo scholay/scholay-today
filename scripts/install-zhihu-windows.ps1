@@ -25,5 +25,5 @@ $Version = (& $Staged version | ConvertFrom-Json).version
 if ($LASTEXITCODE -ne 0 -or $Version -ne $Manifest.cli.latest_version) { throw "CLI version validation failed" }
 New-Item -ItemType Directory -Force -Path (Split-Path $Current) | Out-Null
 [IO.File]::Move($Staged, $Current)
-Write-Host "Installed official Zhihu CLI $Version. Open scholay tody Settings > Platforms to authorize."
+Write-Host "Installed official Zhihu CLI $Version. Open scholay today Settings > Platforms to authorize."
 Write-Host "Verified download retained at $Archive; no credentials were requested or copied."
