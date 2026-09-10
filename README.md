@@ -8,6 +8,22 @@ MCP server name are **scholay-today**, and the sidebar uses the supplied mark + 
 
 面向 macOS 与 Windows 的本地科研信息工作台。提供 RSS / 国内外热榜、原网页浏览、AI formatted、带图 Markdown/JSON 导出，以及可供智能体管理订阅和目录的本机 MCP 服务。
 
+## 欢迎加入：RSS 项目共建
+
+欢迎各类阅读爱好者加入，不限专业、不限技术背景！无论你喜欢科研、科技、人文、新闻，还是日常阅读，都可以一起分享优质信息源、交流阅读方法、反馈使用体验，参与 scholay today 的共建。
+
+**软件免费开源，入群与交流完全免费。** 外部 AI 服务为可选功能，需自行配置密钥，其可能产生的费用由对应服务商收取。
+
+使用微信扫描下方二维码，加入「RSS-项目共建」群：
+
+<p align="center">
+  <img src="docs/community/wechat-rss-group.png" alt="RSS-项目共建微信群二维码，欢迎各类阅读爱好者免费加入" width="320" />
+</p>
+
+二维码有效期至 **2026 年 9 月 17 日**（以微信提示为准）。若已失效，欢迎在本仓库提交 Issue 提醒我们更新；请勿在 Issue 中公开个人微信号或其他隐私信息。
+
+## 使用与构建
+
 - [Windows 安装、授权连接器和构建说明](docs/windows.md)
 - [MCP 工具、平台授权与图文导出](docs/platform-batch1.md)
 - [本项目 CI 构建产物](https://github.com/scholay/scholay-today/actions/workflows/ci.yml)
