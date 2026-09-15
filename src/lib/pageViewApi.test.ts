@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { invoke } = vi.hoisted(() => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke, Channel: class {} }));
-import { openPageView, setPageViewTheme, type PageViewBounds } from "../api";
+import { openPageView, setPageViewTheme, setPageViewZoom, type PageViewBounds } from "../api";
 
 const bounds: PageViewBounds = { x: 12, y: 34, width: 560, height: 720 };
 
@@ -39,6 +39,15 @@ describe("native page-view initial visibility", () => {
     expect(invoke.mock.calls).toEqual([
       ["set_page_view_theme", { dark: true }],
       ["set_page_view_theme", { dark: false }],
+    ]);
+  });
+  it("sends only fixed zoom actions, not a script or scale string", async () => {
+    invoke.mockResolvedValue({ requestId: "reader-1", factor: 0.8, mode: "fit" });
+    await setPageViewZoom("fit");
+    await setPageViewZoom("in");
+    expect(invoke.mock.calls).toEqual([
+      ["set_page_view_zoom", { action: "fit" }],
+      ["set_page_view_zoom", { action: "in" }],
     ]);
   });
 });

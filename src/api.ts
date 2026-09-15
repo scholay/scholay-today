@@ -3,6 +3,7 @@
 import { invoke, Channel } from "@tauri-apps/api/core";
 import { imageBytes, type ImageBytesResponse } from "./lib/imageBytes";
 import { pageViewDarkMode } from "./lib/pageViewTheme";
+import type { PageZoomAction, PageViewZoomEvent } from "./lib/pageViewZoom";
 import type {
   AiEvent,
   AiFormattedDraft,
@@ -366,6 +367,8 @@ export const closePageView = () => invoke<void>("close_page_view");
 export const navigatePageViewHistory = (direction: "back" | "forward") =>
   invoke<void>("page_view_navigate_history", { direction });
 export const reloadPageView = () => invoke<void>("page_view_reload");
+export const setPageViewZoom = (action: PageZoomAction) =>
+  invoke<PageViewZoomEvent>("set_page_view_zoom", { action });
 
 // Capture is local and explicit. Only aiFormatPage sends the captured page to
 // the configured AI provider; reading a saved draft never starts generation.

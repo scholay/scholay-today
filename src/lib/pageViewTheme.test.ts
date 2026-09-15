@@ -149,6 +149,8 @@ describe("reversible embedded webpage theme", () => {
     expect(controller).not.toMatch(/__TAURI|invoke\(|api\.|innerHTML|innerText|localStorage|document\.cookie/);
     expect(read("src/components/Reader.tsx")).toContain("<WebThemeToggle");
     expect(read("src/hot/HotPageView.tsx")).toContain("<WebThemeToggle");
+    expect(read("src/components/Reader.tsx")).toContain("<WebZoomControls");
+    expect(read("src/hot/HotPageView.tsx")).toContain("<WebZoomControls");
     expect(read("src/App.tsx")).toContain('api.setPageViewTheme(webDarkMode && effectiveMode === "dark")');
     const store = read("src/store.ts");
     expect(store.slice(store.indexOf("const PREF_KEYS"), store.indexOf("function loadPrefs"))).toContain('"webDarkMode"');

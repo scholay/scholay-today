@@ -370,6 +370,7 @@ pub fn run() {
             page_view::close_page_view,
             page_view::page_view_navigate_history,
             page_view::page_view_reload,
+            page_view::set_page_view_zoom,
             page_view::set_page_view_theme,
         ])
         .run(tauri::generate_context!())

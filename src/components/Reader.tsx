@@ -24,6 +24,7 @@ import { tagColor } from "../lib/tagColors";
 import type { ArticleDetail, PageCapture } from "../types";
 import AIFormatted from "./AIFormatted";
 import WebThemeToggle from "./WebThemeToggle";
+import WebZoomControls from "./WebZoomControls";
 import ArticleExportPanel from "./ArticleExportPanel";
 import BatchExportPanel from "./BatchExportPanel";
 import { useBatchExport } from "../lib/batchExport";
@@ -1438,6 +1439,7 @@ export default function Reader({ onToast, active = true, onCaptureBusyChange, wo
               <button type="button" title={t("reader.webReload")} aria-label={t("reader.webReload")} disabled={formatJob?.phase === "capturing" || (!currentPageView?.created && webViewOpening && !currentPageView?.waiting)} onClick={() => currentPageView?.created ? runPageViewAction("reload") : setWebOpenAttempt((attempt) => attempt + 1)}><Icon name="refresh" size={14}/></button>
             </div>
             <span className="reader-webview-url" title={currentPageUrl ?? undefined}>{currentPageUrl ?? t("reader.webUnsafeUrl")}</span>
+            <WebZoomControls disabled={!active || formatJob?.phase === "capturing"} requestId={currentPageView?.requestId}/>
             <WebThemeToggle disabled={!active || formatJob?.phase === "capturing"}/>
             {webViewOpening && <span className="reader-web-loading" role="status" title={currentPageView?.waiting ? t("reader.webWaitingHint") : t("common.loading")} aria-label={currentPageView?.waiting ? t("reader.webWaitingShort") : t("common.loading")}><span className="reader-web-spinner" aria-hidden="true"/>{currentPageView?.waiting && <span>{t("reader.webWaitingShort")}</span>}</span>}
           </div>

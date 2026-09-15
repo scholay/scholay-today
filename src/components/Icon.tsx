@@ -7,7 +7,7 @@ const STROKE = 1.75;
 export type IconName =
   | "inbox" | "circle" | "unread" | "star" | "star-fill" | "bookmark"
   | "bookmark-fill" | "clock" | "tag" | "folder" | "rss" | "search"
-  | "plus" | "check" | "check-all" | "sort" | "sparkle" | "sparkle-fill"
+  | "plus" | "minus" | "check" | "check-all" | "sort" | "sparkle" | "sparkle-fill"
   | "open" | "share" | "send" | "more" | "refresh" | "settings" | "chevron-down"
   | "chevron-right" | "globe" | "focus" | "arrow-down" | "arrow-up"
   | "eye" | "eye-off" | "trash" | "mute" | "pin" | "x" | "command"
@@ -79,6 +79,8 @@ export default function Icon({
       return <svg {...p}><circle cx="11" cy="11" r="7.5" /><path d="m20 20-4.3-4.3" /></svg>;
     case "plus":
       return <svg {...p}><path d="M12 5v14M5 12h14" /></svg>;
+    case "minus":
+      return <svg {...p}><path d="M5 12h14" /></svg>;
     case "check":
       return <svg {...p}><path d="M20 6 9 17l-5-5" /></svg>;
     case "check-all":

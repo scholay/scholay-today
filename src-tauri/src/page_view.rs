@@ -30,6 +30,10 @@ use tauri::{
 /// Label of the single original-page child webview.
 const LABEL: &str = "page-view";
 const STATUS_EVENT: &str = "page-view-status";
+const ZOOM_EVENT: &str = "page-view-zoom";
+const PAGE_ZOOM_CONTROLLER: &str = include_str!("page_zoom.js");
+const PAGE_ZOOM_MIN: f64 = 0.3;
+const PAGE_ZOOM_MAX: f64 = 3.0;
 #[cfg(target_os = "macos")]
 const MACOS_DESKTOP_SAFARI_USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Safari/605.1.15";
 // Serialize open/close/history IPC operations and invalidate callbacks from
@@ -65,6 +69,7 @@ struct PageRequest {
     navigation_epoch: AtomicU64,
     loaded: AtomicBool,
     presentation: Mutex<crate::page_theme::Presentation>,
+    zoom: Mutex<PageZoom>,
 }
 
 impl PageRequest {
@@ -89,6 +94,141 @@ impl PageRequest {
             phase,
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum ZoomMode {
+    Fit,
+    Manual,
+}
+
+#[derive(Clone, Copy)]
+struct PageZoom {
+    mode: ZoomMode,
+    factor: f64,
+}
+
+impl Default for PageZoom {
+    fn default() -> Self {
+        Self {
+            mode: ZoomMode::Fit,
+            factor: 1.0,
+        }
+    }
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PageViewZoom {
+    request_id: String,
+    factor: f64,
+    mode: &'static str,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ZoomReadback {
+    factor: f64,
+    mode: String,
+}
+
+fn clamp_zoom_factor(value: f64) -> f64 {
+    if !value.is_finite() {
+        return 1.0;
+    }
+    (value.clamp(PAGE_ZOOM_MIN, PAGE_ZOOM_MAX) * 100.0).round() / 100.0
+}
+
+fn zoom_mode_label(mode: ZoomMode) -> &'static str {
+    match mode {
+        ZoomMode::Fit => "fit",
+        ZoomMode::Manual => "manual",
+    }
+}
+
+fn parse_zoom_object(raw: &str) -> Option<PageZoom> {
+    let parsed: ZoomReadback = serde_json::from_str(raw.trim()).ok()?;
+    let mode = match parsed.mode.as_str() {
+        "fit" => ZoomMode::Fit,
+        "manual" => ZoomMode::Manual,
+        _ => return None,
+    };
+    Some(PageZoom {
+        mode,
+        factor: clamp_zoom_factor(parsed.factor),
+    })
+}
+
+fn parse_zoom_readback(raw: &str) -> Option<PageZoom> {
+    parse_zoom_object(raw)
+        .or_else(|| serde_json::from_str::<String>(raw).ok().as_deref().and_then(parse_zoom_object))
+}
+
+fn page_zoom_initialization_script() -> String {
+    // The remote document may listen for keys and resize, but it is never
+    // granted IPC. Zoom stays inside this isolated controller.
+    format!(
+        r#"(() => {{
+          if (window.top !== window || !/^https?:$/.test(location.protocol)) return;
+          if (!window.__scholayPageZoomV1) {{
+            window.__scholayPageZoomV1 = ({controller})();
+          }}
+        }})();"#,
+        controller = PAGE_ZOOM_CONTROLLER
+    )
+}
+
+fn zoom_eval_script(action: &str, factor: f64) -> Result<String, String> {
+    let call = match action {
+        "in" => "adjust(0.1)".to_string(),
+        "out" => "adjust(-0.1)".to_string(),
+        "reset" => "reset()".to_string(),
+        "fit" => "fit()".to_string(),
+        "get" => "read()".to_string(),
+        "apply" => format!("set({:.2})", clamp_zoom_factor(factor)),
+        _ => return Err("Zoom action must be in, out, reset, fit, or get.".into()),
+    };
+    Ok(format!(
+        r#"(() => {{
+          const zoom = window.__scholayPageZoomV1;
+          if (!zoom) return '{{"factor":1,"mode":"fit"}}';
+          return JSON.stringify(zoom.{call});
+        }})();"#
+    ))
+}
+
+fn emit_zoom(app: &AppHandle, request: &PageRequest, zoom: PageZoom) {
+    if request.is_active() {
+        let _ = app.emit_to(
+            status_target(),
+            ZOOM_EVENT,
+            PageViewZoom {
+                request_id: request.request_id.clone(),
+                factor: zoom.factor,
+                mode: zoom_mode_label(zoom.mode),
+            },
+        );
+    }
+}
+
+fn apply_page_zoom(app: &AppHandle, view: &tauri::Webview, request: Arc<PageRequest>) {
+    let zoom = *request.zoom.lock().unwrap_or_else(|e| e.into_inner());
+    let script = match zoom.mode {
+        ZoomMode::Fit => zoom_eval_script("fit", zoom.factor),
+        ZoomMode::Manual => zoom_eval_script("apply", zoom.factor),
+    };
+    let Ok(script) = script else { return };
+    let app = app.clone();
+    let view = view.clone();
+    let _ = view.eval_with_callback(script, move |value| {
+        if !request.is_active() {
+            return;
+        }
+        if let Some(next) = parse_zoom_readback(&value) {
+            *request.zoom.lock().unwrap_or_else(|e| e.into_inner()) = next;
+            emit_zoom(&app, &request, next);
+        }
+    });
 }
 
 fn status_target() -> EventTarget {
@@ -331,6 +471,7 @@ pub async fn open_page_view(
         navigation_epoch: AtomicU64::new(0),
         loaded: AtomicBool::new(false),
         presentation: Mutex::new(crate::page_theme::Presentation::new(visible, dark_mode)),
+        zoom: Mutex::new(PageZoom::default()),
     });
     *ACTIVE_REQUEST.lock().unwrap_or_else(|e| e.into_inner()) = Some(request.clone());
     let position = LogicalPosition::new(x, y);
@@ -361,7 +502,8 @@ pub async fn open_page_view(
     // unrelated publisher retains the native default UA.
     let user_agent = page_view_user_agent(&parsed);
     let mut builder = WebviewBuilder::new(LABEL, WebviewUrl::External(parsed))
-        .initialization_script(crate::page_theme::initialization_script());
+        .initialization_script(crate::page_theme::initialization_script())
+        .initialization_script(page_zoom_initialization_script());
     if let Some(user_agent) = user_agent {
         builder = builder.user_agent(user_agent);
     }
@@ -423,6 +565,7 @@ pub async fn open_page_view(
                     // Theme may have changed since this native view was created.
                     // Reconcile on every document, including history/redirects.
                     let _ = view.eval(crate::page_theme::update_script());
+                    apply_page_zoom(&load_app, &view, load_request.clone());
                     load_request.loaded.store(true, Ordering::Release);
                     PagePhase::Loaded
                 }
@@ -479,6 +622,11 @@ pub async fn set_page_view_bounds(
             .map_err(|e| e.to_string())?;
         view.set_size(LogicalSize::new(width, height))
             .map_err(|e| e.to_string())?;
+        if let Some(request) = ACTIVE_REQUEST.lock().unwrap_or_else(|e| e.into_inner()).clone() {
+            if request.zoom.lock().unwrap_or_else(|e| e.into_inner()).mode == ZoomMode::Fit {
+                apply_page_zoom(&app, &view, request);
+            }
+        }
     }
     Ok(())
 }
@@ -534,6 +682,62 @@ pub async fn page_view_reload(app: AppHandle) -> Result<(), String> {
 
 /// A fixed boolean styling command, not a generic script executor. Switching
 /// theme preserves page location, scroll position, forms and browser history.
+/// Fixed zoom actions only. The remote page never receives IPC or a script
+/// built from caller-supplied strings.
+#[tauri::command]
+pub async fn set_page_view_zoom(app: AppHandle, action: String) -> Result<PageViewZoom, String> {
+    let _operation = VIEW_OPERATION.lock().await;
+    let request = ACTIVE_REQUEST
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
+        .ok_or("Original page view is not open.")?;
+    let view = app
+        .get_webview(LABEL)
+        .ok_or("Original page view is not open.")?;
+    {
+        let mut zoom = request.zoom.lock().unwrap_or_else(|e| e.into_inner());
+        match action.as_str() {
+            "in" | "out" | "reset" => zoom.mode = ZoomMode::Manual,
+            "fit" => zoom.mode = ZoomMode::Fit,
+            "get" => {}
+            _ => return Err("Zoom action must be in, out, reset, fit, or get.".into()),
+        }
+        if action == "reset" {
+            zoom.factor = 1.0;
+        }
+    }
+    let script = zoom_eval_script(&action, 1.0)?;
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let tx = Mutex::new(Some(tx));
+    let eval_request = request.clone();
+    view.clone().run_on_main_thread(move || {
+        if !eval_request.is_active() {
+            return;
+        }
+        let _ = view.eval_with_callback(script, move |value| {
+            if let Some(tx) = tx.lock().unwrap_or_else(|e| e.into_inner()).take() {
+                let _ = tx.send(value);
+            }
+        });
+    })
+    .map_err(|_| "Could not update original-page zoom.".to_string())?;
+    let raw = tokio::time::timeout(std::time::Duration::from_secs(2), rx)
+        .await
+        .map_err(|_| "Original-page zoom timed out.".to_string())?
+        .map_err(|_| "Original-page zoom was cancelled.".to_string())?;
+    let zoom = parse_zoom_readback(&raw).ok_or("Could not read original-page zoom.")?;
+    if request.is_active() {
+        *request.zoom.lock().unwrap_or_else(|e| e.into_inner()) = zoom;
+        emit_zoom(&app, &request, zoom);
+    }
+    Ok(PageViewZoom {
+        request_id: request.request_id.clone(),
+        factor: zoom.factor,
+        mode: zoom_mode_label(zoom.mode),
+    })
+}
+
 #[tauri::command]
 pub async fn set_page_view_theme(app: AppHandle, dark: bool) -> Result<(), String> {
     let _operation = VIEW_OPERATION.lock().await;
@@ -820,7 +1024,7 @@ pub(crate) async fn capture_smoke_fixture(view: tauri::Webview) -> Result<Captur
     // This entry point is compiled only into the opt-in test executable.
     if url.host_str() != Some("127.0.0.1") { return Err("Smoke fixtures must be local.".into()); }
     let instance = ACTIVE_INSTANCE.fetch_add(1, Ordering::AcqRel) + 1;
-    let request = Arc::new(PageRequest { instance, request_id: "synthetic".into(), current_url: Mutex::new(url.clone()), initial_url: url, navigation_epoch: AtomicU64::new(0), loaded: AtomicBool::new(true), presentation: Mutex::new(crate::page_theme::Presentation::new(true, false)) });
+    let request = Arc::new(PageRequest { instance, request_id: "synthetic".into(), current_url: Mutex::new(url.clone()), initial_url: url, navigation_epoch: AtomicU64::new(0), loaded: AtomicBool::new(true), presentation: Mutex::new(crate::page_theme::Presentation::new(true, false)), zoom: Mutex::new(PageZoom::default()) });
     let raw = native_capture(view, request.clone(), 0).await?;
     validate_snapshot(&raw, &request, 0)
 }
@@ -857,6 +1061,7 @@ mod tests {
             initial_url: parse_url("https://example.com/article").unwrap(),
             navigation_epoch: AtomicU64::new(5),
             loaded: AtomicBool::new(true),
+            zoom: Mutex::new(PageZoom::default()),
         }
     }
 
@@ -1094,6 +1299,7 @@ mod tests {
             initial_url: parse_url("https://example.com/article").unwrap(),
             navigation_epoch: AtomicU64::new(0),
             loaded: AtomicBool::new(true),
+            zoom: Mutex::new(PageZoom::default()),
         };
         let value = serde_json::to_value(request.payload(PagePhase::Loaded, None)).unwrap();
         assert_eq!(
@@ -1112,6 +1318,7 @@ mod tests {
             initial_url: parse_url("https://example.com/article").unwrap(),
             navigation_epoch: AtomicU64::new(0),
             loaded: AtomicBool::new(true),
+            zoom: Mutex::new(PageZoom::default()),
         };
         for candidate in [
             "file:///private/secret.txt",
@@ -1155,5 +1362,43 @@ mod tests {
             let error = history_script(candidate).unwrap_err();
             assert!(!error.contains("private-value"));
         }
+    }
+
+    #[test]
+    fn zoom_scripts_are_fixed_and_never_include_ipc() {
+        let init = page_zoom_initialization_script();
+        assert!(init.contains("width=device-width, initial-scale=1"));
+        assert!(init.contains("window.top !== window"));
+        assert!(!init.contains("__TAURI"));
+        assert!(!init.contains("invoke("));
+        assert!(!init.contains("document.cookie"));
+        assert!(!init.contains("localStorage"));
+        for action in ["in", "out", "reset", "fit", "get"] {
+            let script = zoom_eval_script(action, 1.0).unwrap();
+            assert!(script.contains("__scholayPageZoomV1"));
+            assert!(!script.contains("PRIVATE"));
+        }
+        let error = zoom_eval_script("alert('PRIVATE')", 1.0).unwrap_err();
+        assert!(!error.contains("PRIVATE"));
+        assert!(zoom_eval_script("apply", 1.25).unwrap().contains("set(1.25)"));
+    }
+
+    #[test]
+    fn zoom_readback_accepts_only_clamped_public_fields() {
+        let fit = parse_zoom_readback(r#"{"factor":0.72,"mode":"fit"}"#).unwrap();
+        assert_eq!(fit.factor, 0.72);
+        assert_eq!(fit.mode, ZoomMode::Fit);
+        let quoted = parse_zoom_readback(r#""{\"factor\":1.2,\"mode\":\"manual\"}""#).unwrap();
+        assert_eq!(quoted.factor, 1.2);
+        assert_eq!(quoted.mode, ZoomMode::Manual);
+        assert_eq!(
+            parse_zoom_readback(r#"{"factor":9,"mode":"manual"}"#)
+                .unwrap()
+                .factor,
+            3.0
+        );
+        assert!(parse_zoom_readback(r#"{"factor":1,"mode":"fit","script":"alert(1)"}"#).is_none());
+        assert!(parse_zoom_readback(r#"{"factor":1,"mode":"steal"}"#).is_none());
+        assert!(parse_zoom_readback("PRIVATE-SENSITIVE-RAW").is_none());
     }
 }
