@@ -269,6 +269,15 @@
     "readMinutes": "{{count}} 分钟阅读",
     "viewAllFromFeed": "查看该订阅源的全部文章",
     "extractingFullText": "正在提取全文…",
+    "structuredSource": {
+      "rendered_webpage": "结构化正文 · 网页快照",
+      "public_webpage": "结构化正文 · 公开网页",
+      "extracted_cache": "结构化正文 · 全文缓存",
+      "cached_article": "结构化正文 · 仅 RSS 内容",
+      "unknown": "结构化正文"
+    },
+    "structuredStats": "约 {{words}} 词 · {{images}} 张图",
+    "structuredTruncated": "内容过长，已截断，可能不完整。",
     "noContent": "暂无正文内容。",
     "aiSummaryTitle": "AI 摘要",
     "aiReadingFullText": "正在阅读全文…",

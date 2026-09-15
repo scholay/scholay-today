@@ -268,6 +268,12 @@ export default function App({ active = true, onCaptureBusyChange, onRequestActiv
     });
     return () => { void un.then((f) => f()); };
   }, [qc]);
+  // An agent-requested cleaning job finished: whatever is open re-reads its
+  // stored structured document.
+  useEffect(() => {
+    const un = listen("articles-cleaned", () => void qc.invalidateQueries({ queryKey: ["structured"] }));
+    return () => { void un.then((f) => f()); };
+  }, [qc]);
   useEffect(() => {
     const un = listen("feeds-updated", () => {
       qc.invalidateQueries({ queryKey: ["feeds"] });

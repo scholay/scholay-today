@@ -323,12 +323,8 @@ pub fn parse(mut doc: Document, html: &str) -> Document {
     push(&mut doc, "paragraph", &mut buffer, None);
     doc
 }
-pub fn markdown(doc: &Document) -> String {
-    let scalar = |s: &str| serde_json::to_string(s).unwrap();
-    let mut out=format!("---\ntitle: {}\nsource: {}\ncaptured_at: {}\ncapture_id: {}\nsource_kind: {}\ntruncated: {}\ntags: [scholay-today]\n---\n\n# {}\n\n",scalar(&doc.title),scalar(&doc.source_url),scalar(&doc.captured_at),scalar(&doc.capture_id),scalar(&doc.source_kind),doc.truncated,escape(&doc.title));
-    for warning in &doc.warnings {
-        out.push_str(&format!("> [!warning]\n> {}\n\n", escape(warning)));
-    }
+fn blocks_markdown(doc: &Document, image: impl Fn(&Asset) -> String) -> String {
+    let mut out = String::new();
     for b in &doc.blocks {
         let body = match b.kind.as_str() {
             "heading" => format!("{} {}", "#".repeat(b.level.unwrap_or(2)), b.markdown),
@@ -338,14 +334,7 @@ pub fn markdown(doc: &Document) -> String {
                 .assets
                 .iter()
                 .find(|a| Some(&a.id) == b.asset_id.as_ref())
-                .map(|a| match &a.path {
-                    Some(path) => format!("![{}]({})", escape(&a.alt), path),
-                    None => format!(
-                        "> [!warning] 图片未保存：{}\n> 原图：<{}>",
-                        escape(&a.alt),
-                        a.original_url.replace('>', "%3E")
-                    ),
-                })
+                .map(&image)
                 .unwrap_or_default(),
             _ => b.markdown.clone(),
         };
@@ -353,6 +342,36 @@ pub fn markdown(doc: &Document) -> String {
         out.push_str("\n\n");
     }
     out
+}
+fn destination(url: &str) -> String {
+    url.replace('>', "%3E").replace('<', "%3C")
+}
+pub fn markdown(doc: &Document) -> String {
+    let scalar = |s: &str| serde_json::to_string(s).unwrap();
+    let mut out=format!("---\ntitle: {}\nsource: {}\ncaptured_at: {}\ncapture_id: {}\nsource_kind: {}\ntruncated: {}\ntags: [scholay-today]\n---\n\n# {}\n\n",scalar(&doc.title),scalar(&doc.source_url),scalar(&doc.captured_at),scalar(&doc.capture_id),scalar(&doc.source_kind),doc.truncated,escape(&doc.title));
+    for warning in &doc.warnings {
+        out.push_str(&format!("> [!warning]\n> {}\n\n", escape(warning)));
+    }
+    out.push_str(&blocks_markdown(doc, |a| match &a.path {
+        Some(path) => format!("![{}]({})", escape(&a.alt), path),
+        None => format!(
+            "> [!warning] 图片未保存：{}\n> 原图：<{}>",
+            escape(&a.alt),
+            destination(&a.original_url)
+        ),
+    }));
+    out
+}
+
+/// Reading-oriented Markdown for the in-app structured view and for agents: no
+/// export frontmatter or duplicated title, and an image that was never written
+/// to a package keeps its own remote URL so the reader's captured-asset fetcher
+/// can resolve it against the stored snapshot.
+pub fn reading_markdown(doc: &Document) -> String {
+    blocks_markdown(doc, |a| match &a.path {
+        Some(path) => format!("![{}]({})", escape(&a.alt), path),
+        None => format!("![{}](<{}>)", escape(&a.alt), destination(&a.original_url)),
+    })
 }
 #[cfg(test)]
 mod tests {

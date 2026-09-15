@@ -58,6 +58,9 @@ export function PlatformSettings() {
   </div>;
 }
 
+const permissions = (s: integration.LibraryStatus): integration.McpPermissions =>
+  ({ enabled: s.enabled, writable: s.writable, articles: s.articles, articleClean: s.articleClean });
+
 export function AgentSettings({ onToast }: { onToast: (message: string) => void }) {
   const qc = useQueryClient();
   const query = useQuery({ queryKey: ["library-status"], queryFn: integration.libraryStatus });
@@ -72,8 +75,8 @@ export function AgentSettings({ onToast }: { onToast: (message: string) => void 
   }
   return <div className="integration-settings">
     <section className="integration-card"><h3>本机 MCP 服务</h3><p>智能体通过 stdio 连接正在运行的 scholay today。仅本机访问，不开放网络端口，不暴露密钥或任意命令执行。</p>
-      {s ? <><label className="integration-toggle"><span>启用 MCP</span><input type="checkbox" checked={s.enabled} disabled={busy} onChange={(e) => void run(() => integration.libraryPermissions(e.target.checked, s.writable))}/></label><label className="integration-toggle"><span>允许修改订阅和目录</span><input type="checkbox" checked={s.writable} disabled={busy || !s.enabled} onChange={(e) => void run(() => integration.libraryPermissions(s.enabled, e.target.checked))}/></label>
-      <small>移除订阅只会隐藏并停止抓取，文章保留；彻底清空资料不向 MCP 开放。</small>
+      {s ? <><label className="integration-toggle"><span>启用 MCP</span><input type="checkbox" checked={s.enabled} disabled={busy} onChange={(e) => void run(() => integration.libraryPermissions({ ...permissions(s), enabled: e.target.checked }))}/></label><label className="integration-toggle"><span>允许修改订阅和目录</span><input type="checkbox" checked={s.writable} disabled={busy || !s.enabled} onChange={(e) => void run(() => integration.libraryPermissions({ ...permissions(s), writable: e.target.checked }))}/></label><label className="integration-toggle"><span>允许读取文章正文与清洗结果</span><input type="checkbox" checked={s.articles} disabled={busy || !s.enabled} onChange={(e) => void run(() => integration.libraryPermissions({ ...permissions(s), articles: e.target.checked }))}/></label><label className="integration-toggle"><span>允许请求抓取原网页做结构化清洗</span><input type="checkbox" checked={s.articleClean} disabled={busy || !s.articles} onChange={(e) => void run(() => integration.libraryPermissions({ ...permissions(s), articleClean: e.target.checked }))}/></label>
+      <small>移除订阅只会隐藏并停止抓取，文章保留；彻底清空资料不向 MCP 开放。清洗由应用自己抓取公开网页，单次最多 200 篇，不下载图片，也不改变已读和收藏状态。</small>
       <details className="integration-config" open><summary>连接配置 · 可复制到支持本机 MCP 的智能体</summary><pre>{JSON.stringify(s.configuration, null, 2)}</pre><button onClick={() => void navigator.clipboard.writeText(JSON.stringify(s.configuration, null, 2)).then(() => onToast("MCP 配置已复制")).catch(() => setError("无法写入剪贴板"))}><Icon name="copy" size={14}/>复制配置</button></details></> : <p role="status">{query.isError ? "无法读取本机服务状态" : "正在读取…"}</p>}
     </section>
     <section className="integration-card"><h3>目录层级</h3><p>选择上级目录即可移动，文章和订阅 ID 不变。当前目录名称在整个资料库中保持唯一。</p>

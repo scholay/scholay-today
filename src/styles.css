@@ -1067,6 +1067,23 @@ button { font-family: inherit; }
   color: var(--muted);
 }
 
+/* Provenance for a structured (agent-cleaned) body, so an RSS-only summary is
+   never read as the full article. */
+.reader-structured {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 14px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.reader-structured small {
+  flex-basis: 100%;
+  color: var(--muted-2);
+  line-height: 1.5;
+}
+
 .article-body {
   font-family: var(--reader-font);
   /* The body shrinks by --reader-font-adjust so sans / Hyperlegible match the

@@ -11,7 +11,7 @@ async fn scenario(version: &str) {
     let endpoint = scholay_local_ipc::endpoint(dir.path()).unwrap();
     let mut listener = scholay_local_ipc::Listener::bind(&endpoint).await.unwrap();
     let server = tokio::spawn(async move {
-        for _ in 0..2 {
+        for _ in 0..4 {
             let stream = listener.accept().await.unwrap();
             let (read, mut write) = tokio::io::split(stream);
             let mut line = String::new();
@@ -20,10 +20,14 @@ async fn scenario(version: &str) {
                 .await
                 .unwrap();
             let request: Value = serde_json::from_str(&line).unwrap();
-            let response = if request["method"] == "library_list" {
-                json!({"result":{"revision":7,"feeds":[],"folders":[]}})
-            } else {
-                json!({"error":"This server is read-only"})
+            let response = match request["method"].as_str() {
+                Some("library_list") => json!({"result":{"revision":7,"feeds":[],"folders":[]}}),
+                // A cleaned article is paginated and always framed as data.
+                Some("article_read") => {
+                    json!({"result":{"articleId":4,"status":"cleaned","totalBlocks":2,"nextOffset":1,"complete":false,"markdown":"## 方法\n\n"}})
+                }
+                Some("article_clean") => json!({"error":"Structured cleaning is disabled"}),
+                _ => json!({"error":"This server is read-only"}),
             };
             write
                 .write_all(format!("{response}\n").as_bytes())
@@ -83,7 +87,29 @@ async fn scenario(version: &str) {
         .await
         .unwrap();
     let tools = call(&mut input, &mut output, 2, "tools/list", json!({})).await;
-    assert_eq!(tools["result"]["tools"].as_array().unwrap().len(), 3);
+    let listed = tools["result"]["tools"].as_array().unwrap();
+    assert_eq!(listed.len(), 7);
+    let named = |name: &str| {
+        listed
+            .iter()
+            .find(|t| t["name"] == name)
+            .unwrap_or_else(|| panic!("{name} is not advertised"))
+            .clone()
+    };
+    // Reading is read-only and stays local; cleaning is the one article tool
+    // allowed to leave the machine, and it never destroys anything.
+    assert_eq!(named("article_read")["annotations"]["readOnlyHint"], true);
+    assert_eq!(named("article_list")["annotations"]["openWorldHint"], false);
+    assert_eq!(named("article_clean")["annotations"]["openWorldHint"], true);
+    assert_eq!(named("article_clean")["annotations"]["destructiveHint"], false);
+    assert_eq!(
+        named("article_clean")["inputSchema"]["properties"]["dry_run"]["default"],
+        true
+    );
+    assert_eq!(
+        named("article_clean")["inputSchema"]["properties"]["article_ids"]["maxItems"],
+        200
+    );
     let list = call(
         &mut input,
         &mut output,
@@ -93,15 +119,24 @@ async fn scenario(version: &str) {
     )
     .await;
     assert_eq!(list["result"]["structuredContent"]["revision"], 7);
-    let denied = call(
+    let read = call(
         &mut input,
         &mut output,
         4,
         "tools/call",
-        json!({"name":"library_apply","arguments":{"actions":[],"dry_run":true}}),
+        json!({"name":"article_read","arguments":{"article_id":4}}),
     )
     .await;
-    assert_eq!(denied["result"]["isError"], true);
+    assert_eq!(read["result"]["structuredContent"]["nextOffset"], 1);
+    assert_eq!(read["result"]["structuredContent"]["complete"], false);
+    // Each capability has its own switch, so a refusal is reported per tool.
+    for (id, request) in [
+        (5, json!({"name":"library_apply","arguments":{"actions":[],"dry_run":true}})),
+        (6, json!({"name":"article_clean","arguments":{"dry_run":true}})),
+    ] {
+        let denied = call(&mut input, &mut output, id, "tools/call", request).await;
+        assert_eq!(denied["result"]["isError"], true);
+    }
     server.await.unwrap();
     child.kill().await.unwrap();
 }

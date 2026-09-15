@@ -9,7 +9,7 @@ import { useUi, PANEL_BOUNDS } from "../store";
 import { usePlayer } from "../player";
 import { useTranslationJobs } from "../translation";
 import { useArticleActions } from "../hooks/articleActions";
-import { renderMarkdown } from "../lib/markdown";
+import { capturedImageSources, renderMarkdown } from "../lib/markdown";
 import { downloadBlob, imageFilename } from "../lib/download";
 import { imageDataUrl } from "../lib/imageBytes";
 import { loadReaderViewPreference, resolveReaderViewMode, saveReaderViewPreference, type ReaderViewMode } from "../lib/readerViewMode";
@@ -334,6 +334,27 @@ export default function Reader({ onToast, active = true, onCaptureBusyChange, wo
     enabled: id != null,
   });
   const formattedDraft = formattedQuery.data?.articleId === id ? formattedQuery.data : null;
+  // Purely local: the cleaning itself is requested through MCP, never here.
+  const structuredQuery = useQuery({
+    queryKey: ["structured", id],
+    queryFn: () => api.articleStructuredDocument(id as number),
+    enabled: id != null,
+  });
+  const structuredDoc =
+    structuredQuery.data?.articleId === id && structuredQuery.data.cleaned
+      ? structuredQuery.data
+      : null;
+  const structuredSource = structuredDoc?.markdown ?? "";
+  // Block Markdown from the stored snapshot still goes through the app's
+  // allowlist sanitizer, and its images stay references until the backend has
+  // verified each one against that same snapshot.
+  const structuredImages = useMemo(() => capturedImageSources(structuredSource), [structuredSource]);
+  const structuredMarkup = useMemo(
+    () => (structuredSource ? renderMarkdown(structuredSource, structuredImages) : ""),
+    [structuredSource, structuredImages],
+  );
+  const usingStructured = Boolean(structuredMarkup) && !showExtracted;
+  const structuredVisible = usingStructured && !showTranslation;
   const formatJob = id != null ? formatJobs[id] ?? null : null;
   const formatCacheAction = markdownCacheAction(formattedQuery.status, formattedQuery.isFetching, Boolean(formattedDraft), formatJob?.forceRefresh);
   const formatBusy = formatJob?.phase === "opening" || formatJob?.phase === "capturing" || formatJob?.phase === "formatting";
@@ -826,6 +847,32 @@ export default function Reader({ onToast, active = true, onCaptureBusyChange, wo
     };
   }, [readerTab, a?.id, a?.url, showExtracted, a?.extractedHtml, showTranslation, a?.translatedHtml]);
 
+  // A structured image arrives as a reference, never as a live remote request:
+  // the backend re-checks the URL against the stored snapshot, walks Referer
+  // fallbacks and validates the bytes before they reach the webview.
+  useEffect(() => {
+    const el = bodyRef.current;
+    const captureId = structuredVisible ? structuredDoc?.captureId : undefined;
+    if (!el || !captureId || id == null) return;
+    let alive = true;
+    const queue = Array.from(el.querySelectorAll<HTMLImageElement>("img[data-captured-src]"));
+    void (async () => {
+      while (alive && queue.length) {
+        const img = queue.shift()!;
+        const src = img.dataset.capturedSrc!;
+        try {
+          const bytes = await api.fetchCapturedImage(id, captureId, src);
+          if (alive) img.src = imageDataUrl(src, bytes);
+        } catch {
+          if (alive) img.style.display = "none";
+        }
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [id, structuredVisible, structuredDoc?.captureId, structuredMarkup]);
+
   // Same proactive proxy for the reader hero. These hosts need a Referer that
   // only the Rust fetch path can provide; waiting for `onError` leaves a broken
   // image visible in WKWebView on some builds.
@@ -908,8 +955,11 @@ export default function Reader({ onToast, active = true, onCaptureBusyChange, wo
 
   const hasExtracted = !!a?.extractedHtml;
   const canTranslate = !!(a?.extractedHtml || a?.contentHtml);
+  // An article an agent has already cleaned reads from its stored structured
+  // document, so opening it needs no capture or extraction. The full-text toggle
+  // still switches to the raw extraction when the user wants to compare.
   const baseBody =
-    (showExtracted && a?.extractedHtml ? a.extractedHtml : a?.contentHtml) || "";
+    (usingStructured ? structuredMarkup : showExtracted ? a?.extractedHtml || a?.contentHtml : a?.contentHtml) || "";
   const jobForTarget = job && job.lang === targetLang ? job : undefined;
   const translating = jobForTarget?.status === "translating";
   const cachedValid = !!a?.translatedHtml && a.translatedLang === targetLang;
@@ -1627,6 +1677,29 @@ export default function Reader({ onToast, active = true, onCaptureBusyChange, wo
                     ` ${jobForTarget.done}/${jobForTarget.total}`}
                 </span>
               )}
+            </div>
+          )}
+
+          {/* Where the structured text came from, so a feed-only summary is
+              never mistaken for the full article. */}
+          {structuredVisible && structuredDoc && (
+            <div className="reader-structured" role="note">
+              <Icon name="sparkle" size={12} />
+              <span>
+                {t(`reader.structuredSource.${structuredDoc.sourceKind}`, {
+                  defaultValue: t("reader.structuredSource.unknown"),
+                })}
+                {" · "}
+                {t("reader.structuredStats", {
+                  words: structuredDoc.words ?? 0,
+                  images: structuredDoc.images ?? 0,
+                })}
+              </span>
+              {(structuredDoc.truncated ? [t("reader.structuredTruncated")] : [])
+                .concat(structuredDoc.warnings ?? [])
+                .map((warning) => (
+                  <small key={warning}>{warning}</small>
+                ))}
             </div>
           )}
 

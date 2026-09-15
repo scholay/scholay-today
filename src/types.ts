@@ -14,6 +14,25 @@ export interface PageCapture {
 }
 
 /** Independently persisted Markdown. Failed generations never replace this. */
+/** An article's stored structured cleaning, produced by an agent-requested
+ *  `article_clean` run. Present means the reader can show structured content
+ *  immediately, with no per-article capture or extraction. */
+export interface StructuredDocument {
+  articleId: number;
+  cleaned: boolean;
+  captureId?: string;
+  sourceKind?: string;
+  sourceUrl?: string;
+  cleanedAt?: string;
+  blocks?: number;
+  words?: number;
+  images?: number;
+  truncated?: boolean;
+  warnings?: string[];
+  error?: string | null;
+  markdown?: string;
+}
+
 export interface AiFormattedDraft {
   articleId: number;
   captureId: string;

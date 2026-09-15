@@ -10,6 +10,7 @@ pub use papr_core::{ai, db, error, extraction, ingestion, models, opml, sanitize
 mod public_connectors;
 
 mod ai_formatted;
+mod article_clean;
 mod article_document;
 mod article_export;
 mod batch_export;
@@ -116,6 +117,11 @@ pub fn run() {
             // An unavailable extension must not prevent ordinary RSS startup.
             if papr_core::ai_formatted::ensure_schema(&conn).is_err() {
                 log::warn!("AI-formatted storage could not be initialized; RSS remains available");
+            }
+            // Structured cleaning results. Created up front so the read-only
+            // pool can query cleaning status without a write connection.
+            if article_clean::ensure_schema(&conn).is_err() {
+                log::warn!("Structured cleaning storage could not be initialized; RSS remains available");
             }
             // A small pool of read-only connections for UI queries — under WAL
             // they run concurrently with the writer, so the interface stays
@@ -264,6 +270,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            article_clean::article_structured_document,
             article_export::export_article_bundle,
             batch_export::preview_article_bundles,
             batch_export::export_article_bundles,

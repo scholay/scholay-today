@@ -269,6 +269,15 @@
     "readMinutes": "{{count}} min read",
     "viewAllFromFeed": "View all articles from this feed",
     "extractingFullText": "Extracting full text…",
+    "structuredSource": {
+      "rendered_webpage": "Structured text · page snapshot",
+      "public_webpage": "Structured text · public webpage",
+      "extracted_cache": "Structured text · cached full text",
+      "cached_article": "Structured text · RSS content only",
+      "unknown": "Structured text"
+    },
+    "structuredStats": "~{{words}} words · {{images}} images",
+    "structuredTruncated": "Very long article; the text was truncated and may be incomplete.",
     "noContent": "No content available.",
     "aiSummaryTitle": "AI summary",
     "aiReadingFullText": "Reading the full text…",

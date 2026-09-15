@@ -1,10 +1,10 @@
 //! Explicit, bounded multi-article export. Reads snapshots; never changes RSS
 //! records, read/star flags or AI drafts. Reuses the single-article package.
-use crate::{article_document::{self, Document}, article_export, db, extraction, hot_board, public_fetch, state::AppState};
+use crate::{article_clean, article_document::Document, article_export, hot_board, state::AppState};
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::{collections::HashSet, io::Write, path::{Path, PathBuf}, time::Duration};
+use std::{collections::HashSet, io::Write, path::{Path, PathBuf}};
 use tauri::{ipc::Channel, AppHandle, Manager, State, Webview};
 
 const MAX_ARTICLES: usize = 200;
@@ -20,8 +20,9 @@ fn validate_ids(ids: Vec<i64>) -> Result<Vec<i64>, String> {
 
 /// Prefer the evidence paired with the cached Markdown, then a web snapshot,
 /// then extracted/RSS HTML. Never attach Markdown from a different snapshot.
+/// The snapshot precedence itself lives in `article_clean`, shared with the
+/// agent-driven cleaning path so the two cannot drift apart.
 fn load(c: &Connection, id: i64) -> Result<(Document, Option<String>, bool), String> {
-    let article = db::get_article(c, id).map_err(|_| "文章已不存在")?;
     if let Some(draft) = papr_core::ai_formatted::get(c, id).map_err(|e| e.to_string())? {
         if let Some(doc) = article_export::saved(c, id, Some(&draft.capture_id))? {
             if !doc.blocks.is_empty() {
@@ -29,17 +30,7 @@ fn load(c: &Connection, id: i64) -> Result<(Document, Option<String>, bool), Str
             }
         }
     }
-    if let Some(doc) = article_export::saved(c, id, None)? {
-        if !doc.blocks.is_empty() && doc.source_kind != "cached_article" {
-            return Ok((doc, None, false));
-        }
-    }
-    let needs_fetch = article.extracted_html.as_deref().is_none_or(|s| s.trim().is_empty());
-    let mut doc = article_export::cached_document(c, id)?;
-    if !needs_fetch {
-        doc.source_kind = "extracted_cache".into();
-        doc.warnings = vec!["来自已保存的全文提取缓存，未重新访问网页。".into()];
-    }
+    let (doc, needs_fetch) = article_clean::local_document(c, id, None)?;
     Ok((doc, None, needs_fetch))
 }
 
@@ -96,28 +87,6 @@ fn index_markdown(items: &[ItemResult]) -> String {
     out
 }
 
-/// Only publicly reachable HTML. No cookie/token reuse or background AI.
-async fn fetch_missing(mut doc: Document) -> Result<Document, String> {
-    let (bytes, mime, final_url) = tokio::time::timeout(Duration::from_secs(45), public_fetch::fetch(&doc.source_url, None, 4 * 1024 * 1024)).await.map_err(|_| "补抓取超时")??;
-    if !mime.contains("text/html") && !mime.contains("application/xhtml") {
-        return Err("原网页未返回 HTML；请先在网页视图中打开后导出".into());
-    }
-    let charset = mime.split(';').find_map(|part| part.trim().strip_prefix("charset=")).unwrap_or("utf-8").trim_matches(['\'', '"']);
-    let encoding = encoding_rs::Encoding::for_label(charset.as_bytes()).unwrap_or(encoding_rs::UTF_8);
-    let html = encoding.decode(&bytes).0.into_owned();
-    let extracted_url = final_url.clone();
-    let html = tokio::task::spawn_blocking(move || extraction::extract_article(&html, &extracted_url)).await.map_err(|_| "全文提取任务异常")?.map_err(|_| "未识别到正文；可能需要登录或执行网页脚本")?;
-    doc.capture_id = format!("batch-{}", uuid::Uuid::new_v4());
-    doc.captured_at = chrono::Utc::now().to_rfc3339();
-    doc.source_url = final_url;
-    doc.source_kind = "public_webpage".into();
-    doc.blocks.clear(); doc.assets.clear();
-    doc.warnings = vec!["来自公开网页的正文提取；未使用登录态，未执行网页脚本，不保证包含隐藏、分页或附件内容。".into()];
-    let doc = article_document::parse(doc, &html);
-    if doc.blocks.is_empty() { return Err("补抓取没有获得正文".into()); }
-    Ok(doc)
-}
-
 struct Staging(PathBuf);
 impl Drop for Staging {
     fn drop(&mut self) {
@@ -172,7 +141,7 @@ pub async fn export_article_bundles(app: AppHandle, state: State<'_, AppState>, 
                 item.title = doc.title.clone();
                 let _ = on_progress.send(json!({"done":index,"total":total,"title":item.title,"phase":"article"}));
                 if options.fetch_missing && needs_fetch {
-                    match fetch_missing(doc.clone()).await {
+                    match article_clean::fetch_public(doc.clone(), "batch").await {
                         Ok(fetched) => doc = fetched,
                         Err(error) => {
                             doc.warnings.push(format!("补抓取失败，保留本地缓存：{error}"));
@@ -231,6 +200,7 @@ pub async fn export_article_bundles(app: AppHandle, state: State<'_, AppState>, 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::article_document;
     use std::io::Read;
     #[test]
     fn bounds_and_duplicates() {

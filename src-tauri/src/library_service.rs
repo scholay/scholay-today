@@ -1,6 +1,6 @@
 //! The app remains the single writer. MCP uses a permission-restricted local
 //! Unix socket / Windows named pipe; remote WebViews cannot control the service.
-use crate::{db, hot_board, state::AppState};
+use crate::{article_clean, db, hot_board, state::AppState};
 use papr_core::library::{self, Mutation};
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, Manager, State, Webview};
@@ -77,6 +77,7 @@ pub async fn library_status(
     let socket = scholay_local_ipc::endpoint(&dir).map_err(|_| "Cannot resolve the local bridge")?;
     Ok(
         json!({"enabled":db::setting_flag(&c,"mcp_enabled",false),"writable":db::setting_flag(&c,"mcp_writable",false),
+      "articles":db::setting_flag(&c,"mcp_articles",false),"articleClean":db::setting_flag(&c,"mcp_article_clean",false),
       "revision":library::revision(&c).map_err(|e|e.to_string())?,"archived":library::archived(&c).map_err(|e|e.to_string())?,
       "history":library::history(&c).map_err(|e|e.to_string())?,"configuration":{"mcpServers":{"scholay-today":{"command":executable,"args":["--socket",socket]}}}}),
     )
@@ -89,13 +90,25 @@ pub async fn library_permissions(
     webview: Webview,
     enabled: bool,
     writable: bool,
+    articles: bool,
+    article_clean: bool,
 ) -> Result<(), String> {
     hot_board::require_main(&webview)?;
     let c = state.db.lock().await;
-    db::set_setting(&c, "mcp_enabled", if enabled { "true" } else { "false" })
-        .map_err(|e| e.to_string())?;
-    db::set_setting(&c, "mcp_writable", if writable { "true" } else { "false" })
-        .map_err(|e| e.to_string())?;
+    // The dependency chain is enforced here, so a stale view can never leave a
+    // capability enabled underneath a switch the user turned off.
+    let writable = writable && enabled;
+    let articles = articles && enabled;
+    let article_clean = article_clean && articles;
+    for (key, value) in [
+        ("mcp_enabled", enabled),
+        ("mcp_writable", writable),
+        ("mcp_articles", articles),
+        ("mcp_article_clean", article_clean),
+    ] {
+        db::set_setting(&c, key, if value { "true" } else { "false" })
+            .map_err(|e| e.to_string())?;
+    }
     changed(&app);
     Ok(())
 }
@@ -105,14 +118,34 @@ async fn dispatch(app: &AppHandle, request: Value) -> Result<Value, String> {
     let p = &request["params"];
     let state = app.state::<AppState>();
     {
+        // Each capability has its own switch: changing the library, reading
+        // article bodies, and letting the app fetch original pages for cleaning
+        // are separate decisions the user makes in Settings.
+        const READ_ONLY: &str =
+            "This server is read-only. The user must enable write access in Settings.";
+        const NO_ARTICLES: &str = "Reading article content over MCP is disabled. The user must enable it in Settings → Agent access.";
+        const NO_CLEANING: &str = "Structured cleaning is disabled. The user must allow the app to fetch original pages in Settings → Agent access.";
+        let required: &[(&str, &str)] = match method {
+            "library_list" => &[],
+            "library_apply" | "feed_add" => &[("mcp_writable", READ_ONLY)],
+            "article_list" | "article_read" | "article_clean_status" => {
+                &[("mcp_articles", NO_ARTICLES)]
+            }
+            // Cleaning also surfaces the cleaned text, so it needs both.
+            "article_clean" => &[
+                ("mcp_articles", NO_ARTICLES),
+                ("mcp_article_clean", NO_CLEANING),
+            ],
+            _ => return Err("Unknown method".into()),
+        };
         let c = state.read().await;
         if !db::setting_flag(&c, "mcp_enabled", false) {
             return Err("MCP is disabled. Enable it in Settings → Agent access.".into());
         }
-        if method != "library_list" && !db::setting_flag(&c, "mcp_writable", false) {
-            return Err(
-                "This server is read-only. The user must enable write access in Settings.".into(),
-            );
+        for (flag, message) in required {
+            if !db::setting_flag(&c, flag, false) {
+                return Err((*message).into());
+            }
         }
     }
     match method {
@@ -166,6 +199,68 @@ async fn dispatch(app: &AppHandle, request: Value) -> Result<Value, String> {
             changed(app);
             Ok(json!(feed))
         }
+        "article_list" => {
+            let selection = article_clean::selection(p, None)?;
+            let c = state.read().await;
+            article_clean::list(&c, &selection)
+        }
+        "article_read" => {
+            let article_id = p["article_id"]
+                .as_i64()
+                .filter(|id| *id > 0)
+                .ok_or("Provide a positive article_id")?;
+            let markdown = match p["format"].as_str() {
+                None | Some("markdown") => true,
+                Some("blocks") => false,
+                _ => return Err("format accepts markdown or blocks".into()),
+            };
+            let offset = p["offset"].as_u64().unwrap_or(0) as usize;
+            let limit = match p["limit"] {
+                Value::Null => article_clean::DEFAULT_READ_BLOCKS,
+                ref value => match value.as_u64() {
+                    Some(n) if n >= 1 && n as usize <= article_clean::MAX_READ_BLOCKS => n as usize,
+                    _ => {
+                        return Err(format!(
+                            "limit accepts 1–{} blocks",
+                            article_clean::MAX_READ_BLOCKS
+                        ))
+                    }
+                },
+            };
+            let budget = article_clean::read_budget(p)?;
+            let c = state.read().await;
+            article_clean::read(&c, article_id, markdown, offset, limit, budget)
+        }
+        "article_clean" => {
+            // A run of up to 200 articles cannot finish inside one request, so
+            // this only queues the job; progress comes from article_clean_status.
+            let force = p["force"].as_bool().unwrap_or(false);
+            let selection = article_clean::selection(p, if force { None } else { Some(false) })?;
+            let request_key = match p["request_key"].as_str() {
+                Some(key) if key.chars().count() > 128 => {
+                    return Err("request_key is limited to 128 characters".into())
+                }
+                Some(key) => Some(key.to_owned()),
+                None => None,
+            };
+            let ids = {
+                let c = state.read().await;
+                if p["dry_run"].as_bool().unwrap_or(true) {
+                    return article_clean::preview(&c, &selection);
+                }
+                article_clean::candidate_ids(&c, &selection)?
+            };
+            if ids.is_empty() {
+                return Ok(json!({"started":false,"count":0,
+                  "message":"Nothing to clean for this selection. Pass force: true to re-clean articles that were already cleaned."}));
+            }
+            article_clean::start(app, ids, force, request_key)
+        }
+        "article_clean_status" => match p["job_id"].as_str() {
+            Some(id) => article_clean::job(id).ok_or_else(|| "No such cleaning job".to_string()),
+            None => Ok(article_clean::active_job()
+                .unwrap_or_else(|| json!({"running":false,"message":"No cleaning job is running"}))),
+        },
         _ => Err("Unknown method".into()),
     }
 }

@@ -269,6 +269,15 @@
     "readMinutes": "{{count}} 分で読了",
     "viewAllFromFeed": "このフィードの記事をすべて表示",
     "extractingFullText": "全文を抽出中…",
+    "structuredSource": {
+      "rendered_webpage": "構造化本文 · ページスナップショット",
+      "public_webpage": "構造化本文 · 公開ウェブページ",
+      "extracted_cache": "構造化本文 · 全文キャッシュ",
+      "cached_article": "構造化本文 · RSS 本文のみ",
+      "unknown": "構造化本文"
+    },
+    "structuredStats": "約 {{words}} 語 · 画像 {{images}} 枚",
+    "structuredTruncated": "本文が長いため切り詰められ、不完全な可能性があります。",
     "noContent": "本文がありません。",
     "aiSummaryTitle": "AI要約",
     "aiReadingFullText": "全文を読み込み中…",

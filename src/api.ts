@@ -21,6 +21,7 @@ import type {
   RuleField,
   RulePreview,
   SmartCounts,
+  StructuredDocument,
   Tag,
   TranslateEvent,
   WechatConnectorStatus,
@@ -34,6 +35,12 @@ export const renameFolder = (id: number, name: string) =>
   invoke<void>("rename_folder", { id, name });
 export const deleteFolder = (id: number) =>
   invoke<void>("delete_folder", { id });
+
+// ── structured cleaning ──
+/** The article's stored cleaning, if an agent has cleaned it. Local read only:
+ *  this never captures or fetches anything. */
+export const articleStructuredDocument = (articleId: number) =>
+  invoke<StructuredDocument>("article_structured_document", { articleId });
 
 // ── images ──
 export const fetchCapturedImage = (articleId: number, captureId: string, url: string) =>
