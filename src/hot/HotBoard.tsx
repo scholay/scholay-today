@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueries, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import Icon from "../components/Icon";
 import Brand from "../components/Brand";
+import BoardResizeHandles from "../components/BoardResizeHandles";
+import { useBoardPanes } from "../hooks/useBoardPanes";
 import { isMac } from "../lib/platform";
 import { safePageViewUrl } from "../lib/pageViewState";
 import { getHotSnapshot, listHotSources } from "./api";
@@ -37,6 +39,7 @@ export default function HotBoard({ active, workspaceSwitch }: { active: boolean;
   const orderedSources = useMemo(() => sortHotSources(sources, ui.favorites), [sources, ui.favorites]);
   const filteredSources = orderedSources.filter((source) => matchesHotFilter(source, ui.filter) && (!ui.favoritesOnly || ui.favorites.includes(source.id)));
   const selectedSource = ui.view === "source" ? sources.find((source) => source.id === ui.sourceId) : undefined;
+  const panes = useBoardPanes("hotboard", !!selectedSource, active);
   const requestedSources = selectedSource ? [selectedSource] : filteredSources;
   const snapshots = useQueries({ queries: requestedSources.map((source) => ({
     queryKey: snapshotKey(source.id),
@@ -92,7 +95,7 @@ export default function HotBoard({ active, workspaceSwitch }: { active: boolean;
   const refreshing = snapshots.some((query) => query.isFetching);
   const matchingCards = filteredSources.filter((source) => !ui.search.trim() || bySource.get(source.id)?.data?.items.some((item) => matchesHotSearch(item, ui.search)));
 
-  return <section className={`hot-workspace ${selectedSource ? "is-source" : "is-overview"}`} aria-label="独立热榜工作区">
+  return <section ref={panes.hostRef} style={panes.style} className={`hot-workspace ${selectedSource ? "is-source" : "is-overview"}`} aria-label="独立热榜工作区">
     <aside className="hot-sidebar" aria-label="热榜来源">
       {isMac && <div className="titlebar" data-tauri-drag-region />}
       {workspaceSwitch ? <div className="workspace-sidebar-heading">{workspaceSwitch}</div> : <Brand className="hot-brand"/>}
@@ -148,5 +151,6 @@ export default function HotBoard({ active, workspaceSwitch }: { active: boolean;
         </div>}
       </section>
     </>}
+    {active && <BoardResizeHandles panes={panes} hasList={!!selectedSource} label="热榜"/>}
   </section>;
 }

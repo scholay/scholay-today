@@ -39,11 +39,13 @@ export default function ResizeHandle({ width, side, min, max, onResize, label }:
   // read fresh values without re-binding mid-drag.
   const latest = useRef({ width, side, min, max, onResize });
   latest.current = { width, side, min, max, onResize };
+  const cleanupDrag = useRef<(() => void) | null>(null);
 
   const onPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     // Ignore secondary buttons so a right-click context menu can't start a drag.
     if (e.button !== 0) return;
     e.preventDefault();
+    cleanupDrag.current?.();
     const startX = e.clientX;
     const { width: startW } = latest.current;
 
@@ -63,9 +65,13 @@ export default function ResizeHandle({ width, side, min, max, onResize, label }:
       document.body.style.userSelect = "";
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+      cleanupDrag.current = null;
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+    cleanupDrag.current = up;
   }, []);
 
   // Keyboard a11y: arrow keys nudge the boundary in 16px steps for users who
@@ -85,6 +91,7 @@ export default function ResizeHandle({ width, side, min, max, onResize, label }:
   // the panes), make sure the global cursor/select overrides are cleared.
   useEffect(() => {
     return () => {
+      cleanupDrag.current?.();
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
     };
@@ -96,6 +103,9 @@ export default function ResizeHandle({ width, side, min, max, onResize, label }:
       role="separator"
       aria-orientation="vertical"
       aria-label={label}
+      aria-valuenow={Math.round(width)}
+      aria-valuemin={min}
+      aria-valuemax={Math.round(max)}
       tabIndex={0}
       onPointerDown={onPointerDown}
       onKeyDown={onKeyDown}
