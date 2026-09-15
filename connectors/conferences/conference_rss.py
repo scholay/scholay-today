@@ -239,7 +239,7 @@ class Cache:
         self.path = Path(directory) / "cache.json"
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.lock = threading.RLock()
-        self.records = json.loads(self.path.read_text()) if self.path.exists() else {}
+        self.records = json.loads(self.path.read_text(encoding="utf-8")) if self.path.exists() else {}
 
     def update(self, key, collector=collect):
         checked = stamp()

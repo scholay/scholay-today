@@ -18,10 +18,14 @@ jobs:
           node-version: 22
           cache: pnpm
       - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - uses: swatinem/rust-cache@v2
       - run: pnpm install --frozen-lockfile
       - run: pnpm test
       - run: pnpm prepare:mcp
+      - run: node scripts/prepare-public-bridge.mjs
       - run: cargo test --workspace --locked
       - run: cargo run --locked -p papr --features windows-smoke --example windows-smoke
       - run: pnpm build:desktop

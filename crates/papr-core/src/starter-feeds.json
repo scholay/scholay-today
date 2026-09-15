@@ -1,0 +1,975 @@
+[
+  {
+    "title": "香港中文大學新聞稿",
+    "url": "https://apps.cuhk.edu.hk/cuhkwebsite/rss/press-release-rss.aspx?lang=chinese",
+    "folder": "机构动态",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "中央研究院 資訊科學研究所【最新消息】",
+    "url": "https://www.iis.sinica.edu.tw/zh/iis-announcement.xml",
+    "folder": "机构动态",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "國家科學及技術委員會 - 研討會及活動訊息",
+    "url": "https://www.nstc.gov.tw/nstc/rss/events",
+    "folder": "基金活动",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "國家科學及技術委員會 - 最新消息",
+    "url": "https://www.nstc.gov.tw/nstc/rss/news",
+    "folder": "基金活动",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "檔案的資料資訊",
+    "url": "https://data.gov.hk/filestore/feeds/data_rss_tc.xml",
+    "folder": "开放数据",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "量子位",
+    "url": "https://www.qbitai.com/feed",
+    "folder": "科研传播",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "研之有物 │ 串聯您與中央研究院的橋梁",
+    "url": "https://research.sinica.edu.tw/feed/",
+    "folder": "科研传播",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "PanSci 泛科學",
+    "url": "https://pansci.asia/feed/",
+    "folder": "科研传播",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "科学网新闻RSS——国际快讯",
+    "url": "https://www.sciencenet.cn/xml/news-0.aspx?di=7",
+    "folder": "科研新闻",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "科学网新闻RSS——频道要闻",
+    "url": "https://www.sciencenet.cn/xml/news-0.aspx?di=3",
+    "folder": "科研新闻",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "科学网新闻RSS——新闻评论",
+    "url": "https://www.sciencenet.cn/xml/news-0.aspx?di=6",
+    "folder": "科研新闻",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "科学网新闻RSS——首页头条",
+    "url": "https://www.sciencenet.cn/xml/news-0.aspx?news=0",
+    "folder": "科研新闻",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "科学网新闻RSS——人才高教",
+    "url": "https://www.sciencenet.cn/xml/news-0.aspx?di=9",
+    "folder": "科研新闻",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "科学网新闻RSS——首页要闻",
+    "url": "https://www.sciencenet.cn/xml/news-0.aspx?di=1",
+    "folder": "科研新闻",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "科学网新闻RSS——通知公告",
+    "url": "https://www.sciencenet.cn/xml/news-0.aspx?di=5",
+    "folder": "科研新闻",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "科学网新闻RSS——首页头条",
+    "url": "https://www.sciencenet.cn/xml/news-0.aspx?di=0",
+    "folder": "科研新闻",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "科学网新闻RSS——一般新闻",
+    "url": "https://www.sciencenet.cn/xml/news-0.aspx?di=4",
+    "folder": "科研新闻",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "科学网新闻RSS——HOT论文",
+    "url": "https://www.sciencenet.cn/xml/news-0.aspx?di=8",
+    "folder": "科研新闻",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "科学网招生招聘RSS——工程技术",
+    "url": "https://www.sciencenet.cn/xml/classinfo.aspx?di=8",
+    "folder": "科研招聘",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "科学网招生招聘RSS——基础科学",
+    "url": "https://www.sciencenet.cn/xml/classinfo.aspx?di=7",
+    "folder": "科研招聘",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "科学网招生招聘RSS——前沿交叉",
+    "url": "https://www.sciencenet.cn/xml/classinfo.aspx?di=4",
+    "folder": "科研招聘",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "科学网招生招聘RSS——所有信息",
+    "url": "https://www.sciencenet.cn/xml/classinfo.aspx",
+    "folder": "科研招聘",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "科学网招生招聘RSS——生命科学",
+    "url": "https://www.sciencenet.cn/xml/classinfo.aspx?di=3",
+    "folder": "科研招聘",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "科学网招生招聘RSS——信息科学",
+    "url": "https://www.sciencenet.cn/xml/classinfo.aspx?di=9",
+    "folder": "科研招聘",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "科学网招生招聘RSS——医药健康",
+    "url": "https://www.sciencenet.cn/xml/classinfo.aspx?di=6",
+    "folder": "科研招聘",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "科学网招生招聘RSS——政策管理",
+    "url": "https://www.sciencenet.cn/xml/classinfo.aspx?di=5",
+    "folder": "科研招聘",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "科学网论文RSS——地球科学",
+    "url": "https://www.sciencenet.cn/xml/paper.aspx?di=3",
+    "folder": "论文快讯",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "科学网论文RSS——工程材料",
+    "url": "https://www.sciencenet.cn/xml/paper.aspx?di=5",
+    "folder": "论文快讯",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "科学网论文RSS——管理交叉",
+    "url": "https://www.sciencenet.cn/xml/paper.aspx?di=8",
+    "folder": "论文快讯",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "科学网论文RSS——化学科学",
+    "url": "https://www.sciencenet.cn/xml/paper.aspx?di=4",
+    "folder": "论文快讯",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "科学网论文RSS——所有论文",
+    "url": "https://www.sciencenet.cn/xml/paper.aspx?di=0",
+    "folder": "论文快讯",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "科学网论文RSS——生命科学",
+    "url": "https://www.sciencenet.cn/xml/paper.aspx?di=2",
+    "folder": "论文快讯",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "科学网论文RSS——数理科学",
+    "url": "https://www.sciencenet.cn/xml/paper.aspx?di=7",
+    "folder": "论文快讯",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "科学网论文RSS——信息科学",
+    "url": "https://www.sciencenet.cn/xml/paper.aspx?di=6",
+    "folder": "论文快讯",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "科学网论文RSS——医药健康",
+    "url": "https://www.sciencenet.cn/xml/paper.aspx?di=1",
+    "folder": "论文快讯",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "数据解读",
+    "url": "https://www.stats.gov.cn/sj/sjjd/rss.xml",
+    "folder": "统计数据",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "数据发布",
+    "url": "https://www.stats.gov.cn/sj/zxfb/rss.xml",
+    "folder": "统计数据",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "北京大学图书馆新闻",
+    "url": "https://www.lib.pku.edu.cn/portal/feeds/news",
+    "folder": "图书馆资源",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "北京大学图书馆最新资源",
+    "url": "https://www.lib.pku.edu.cn/portal/feeds/resources",
+    "folder": "图书馆资源",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "科学空间|Scientific Spaces",
+    "url": "https://kexue.fm/feed",
+    "folder": "研究博客",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "科学网博客RSS——编辑部推荐",
+    "url": "https://www.sciencenet.cn/xml/blog.aspx?di=20",
+    "folder": "研究博客",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "科学网博客RSS——博客新闻",
+    "url": "https://www.sciencenet.cn/xml/blog.aspx?di=12",
+    "folder": "研究博客",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "科学网博客RSS——观点评述",
+    "url": "https://www.sciencenet.cn/xml/blog.aspx?di=3",
+    "folder": "研究博客",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "科学网博客RSS——海外观察",
+    "url": "https://www.sciencenet.cn/xml/blog.aspx?di=2",
+    "folder": "研究博客",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "科学网博客RSS——教学心得",
+    "url": "https://www.sciencenet.cn/xml/blog.aspx?di=9",
+    "folder": "研究博客",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "科学网博客RSS——科普集锦",
+    "url": "https://www.sciencenet.cn/xml/blog.aspx?di=7",
+    "folder": "研究博客",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "科学网博客RSS——科研笔记",
+    "url": "https://www.sciencenet.cn/xml/blog.aspx?di=1",
+    "folder": "研究博客",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "科学网博客RSS——论文交流",
+    "url": "https://www.sciencenet.cn/xml/blog.aspx?di=11",
+    "folder": "研究博客",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "科学网博客RSS——所有文章",
+    "url": "https://www.sciencenet.cn/xml/blog.aspx?di=0",
+    "folder": "研究博客",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "科学网博客RSS——人文社科",
+    "url": "https://www.sciencenet.cn/xml/blog.aspx?di=10",
+    "folder": "研究博客",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "科学网博客RSS——用户推荐",
+    "url": "https://www.sciencenet.cn/xml/blog.aspx?di=30",
+    "folder": "研究博客",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "统计之都",
+    "url": "https://cosx.org/index.xml",
+    "folder": "研究博客",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "SeisMan",
+    "url": "https://blog.seisman.info/index.xml",
+    "folder": "研究博客",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "北京航空航天大学学报",
+    "url": "https://bhxb.buaa.edu.cn/bhzk/rss/current.xml",
+    "folder": "中文期刊",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "地理学报-CNKI",
+    "url": "https://rss.cnki.net/knavi/rss/DLXB?pcode=CJFD,CCJD",
+    "folder": "中文期刊",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "地球物理学报-CNKI",
+    "url": "https://rss.cnki.net/knavi/rss/DQWX?pcode=CJFD,CCJD",
+    "folder": "中文期刊",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "电子与信息学报",
+    "url": "https://jeit.ac.cn/rss/current.xml",
+    "folder": "中文期刊",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "法学研究-CNKI",
+    "url": "https://rss.cnki.net/knavi/rss/LAWS?pcode=CJFD,CCJD",
+    "folder": "中文期刊",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "管理世界-CNKI",
+    "url": "https://rss.cnki.net/knavi/rss/GLSJ?pcode=CJFD,CCJD",
+    "folder": "中文期刊",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "国际新闻界-CNKI",
+    "url": "https://rss.cnki.net/knavi/rss/GJXW?pcode=CJFD,CCJD",
+    "folder": "中文期刊",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "化学学报-CNKI",
+    "url": "https://rss.cnki.net/knavi/rss/HXXB?pcode=CJFD,CCJD",
+    "folder": "中文期刊",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "计算机学报-CNKI",
+    "url": "https://rss.cnki.net/knavi/rss/JSJX?pcode=CJFD,CCJD",
+    "folder": "中文期刊",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "教育研究-CNKI",
+    "url": "https://rss.cnki.net/knavi/rss/JYYJ?pcode=CJFD,CCJD",
+    "folder": "中文期刊",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "近代史研究-CNKI",
+    "url": "https://rss.cnki.net/knavi/rss/JDSY?pcode=CJFD,CCJD",
+    "folder": "中文期刊",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "经济学(季刊)-CNKI",
+    "url": "https://rss.cnki.net/knavi/rss/JJXU?pcode=CJFD,CCJD",
+    "folder": "中文期刊",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "经济研究-CNKI",
+    "url": "https://rss.cnki.net/knavi/rss/JJYJ?pcode=CJFD,CCJD",
+    "folder": "中文期刊",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "科学通报-CNKI",
+    "url": "https://rss.cnki.net/knavi/rss/KXTB?pcode=CJFD,CCJD",
+    "folder": "中文期刊",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "历史研究-CNKI",
+    "url": "https://rss.cnki.net/knavi/rss/LSYJ?pcode=CJFD,CCJD",
+    "folder": "中文期刊",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "清史研究-CNKI",
+    "url": "https://rss.cnki.net/knavi/rss/QSYJ?pcode=CJFD,CCJD",
+    "folder": "中文期刊",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "社会学研究-CNKI",
+    "url": "https://rss.cnki.net/knavi/rss/SHXJ?pcode=CJFD,CCJD",
+    "folder": "中文期刊",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "生态学报-CNKI",
+    "url": "https://rss.cnki.net/knavi/rss/STXB?pcode=CJFD,CCJD",
+    "folder": "中文期刊",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "世界经济-CNKI",
+    "url": "https://rss.cnki.net/knavi/rss/SJJJ?pcode=CJFD,CCJD",
+    "folder": "中文期刊",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "数量经济技术经济研究-CNKI",
+    "url": "https://rss.cnki.net/knavi/rss/SLJY?pcode=CJFD,CCJD",
+    "folder": "中文期刊",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "外国文学评论-CNKI",
+    "url": "https://rss.cnki.net/knavi/rss/WGWX?pcode=CJFD,CCJD",
+    "folder": "中文期刊",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "物理学报-CNKI",
+    "url": "https://rss.cnki.net/knavi/rss/WLXB?pcode=CJFD,CCJD",
+    "folder": "中文期刊",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "心理学报-CNKI",
+    "url": "https://rss.cnki.net/knavi/rss/XLXB?pcode=CJFD,CCJD",
+    "folder": "中文期刊",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "新闻与传播研究-CNKI",
+    "url": "https://rss.cnki.net/knavi/rss/YANJ?pcode=CJFD,CCJD",
+    "folder": "中文期刊",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "应用生态学报-CNKI",
+    "url": "https://rss.cnki.net/knavi/rss/YYSB?pcode=CJFD,CCJD",
+    "folder": "中文期刊",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "哲学研究-CNKI",
+    "url": "https://rss.cnki.net/knavi/rss/ZXYJ?pcode=CJFD,CCJD",
+    "folder": "中文期刊",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "政治学研究-CNKI",
+    "url": "https://rss.cnki.net/knavi/rss/POLI?pcode=CJFD,CCJD",
+    "folder": "中文期刊",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "中国法学-CNKI",
+    "url": "https://rss.cnki.net/knavi/rss/ZGFX?pcode=CJFD,CCJD",
+    "folder": "中文期刊",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "中国工业经济-CNKI",
+    "url": "https://rss.cnki.net/knavi/rss/GGYY?pcode=CJFD,CCJD",
+    "folder": "中文期刊",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "Bulletin of Chinese Academy of Sciences (Chinese Version)",
+    "url": "https://bulletinofcas.researchcommons.org/recent.rss",
+    "folder": "中文期刊",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "中国农业科学-CNKI",
+    "url": "https://rss.cnki.net/knavi/rss/ZNYK?pcode=CJFD,CCJD",
+    "folder": "中文期刊",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "中国软科学-CNKI",
+    "url": "https://rss.cnki.net/knavi/rss/ZGRK?pcode=CJFD,CCJD",
+    "folder": "中文期刊",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "中国社会科学-CNKI",
+    "url": "https://rss.cnki.net/knavi/rss/ZSHK?pcode=CJFD,CCJD",
+    "folder": "中文期刊",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "中华流行病学杂志-CNKI",
+    "url": "https://rss.cnki.net/knavi/rss/ZHLX?pcode=CJFD,CCJD",
+    "folder": "中文期刊",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "中华医学杂志-CNKI",
+    "url": "https://rss.cnki.net/knavi/rss/ZHYX?pcode=CJFD,CCJD",
+    "folder": "中文期刊",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "自动化学报-CNKI",
+    "url": "https://rss.cnki.net/knavi/rss/MOTO?pcode=CJFD,CCJD",
+    "folder": "中文期刊",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "少数派",
+    "url": "https://sspai.com/feed",
+    "folder": "日常·数字生活",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "阮一峰的网络日志",
+    "url": "https://www.ruanyifeng.com/blog/atom.xml",
+    "folder": "日常·数字生活",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "潮流周刊",
+    "url": "https://weekly.tw93.fun/rss.xml",
+    "folder": "日常·数字生活",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "Taxodium",
+    "url": "https://taxodium.ink/rss.xml",
+    "folder": "日常·数字生活",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "Openbook閱讀誌",
+    "url": "https://www.openbook.org.tw/rss.xml",
+    "folder": "书影·文化生活",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "书格",
+    "url": "https://www.shuge.org/feed/",
+    "folder": "书影·文化生活",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "机核",
+    "url": "https://www.gcores.com/rss",
+    "folder": "书影·文化生活",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "釀電影",
+    "url": "https://filmaholic.tw/feed/",
+    "folder": "书影·文化生活",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "非马非牛",
+    "url": "https://www.fmfn.online/feed/audio.xml",
+    "folder": "书影·文化生活",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "虹线",
+    "url": "https://1q43.blog/feed/",
+    "folder": "社会·大众科学",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "報導者",
+    "url": "https://www.twreporter.org/a/rss2.xml",
+    "folder": "社会·大众科学",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "神经现实",
+    "url": "https://neu-reality.com/feed/",
+    "folder": "社会·大众科学",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "对话地球",
+    "url": "https://dialogue.earth/zh/feed/",
+    "folder": "社会·大众科学",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "Quanta Magazine",
+    "url": "https://www.quantamagazine.org/feed/",
+    "folder": "海外精选·AI翻译",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "JSTOR Daily",
+    "url": "https://daily.jstor.org/feed/",
+    "folder": "海外精选·AI翻译",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "Psyche | Know Your Self",
+    "url": "https://psyche.co/feed.rss",
+    "folder": "海外精选·AI翻译",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "Atlas Obscura - Latest Articles and Places",
+    "url": "https://www.atlasobscura.com/feeds/latest",
+    "folder": "海外精选·AI翻译",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "NASA Science",
+    "url": "https://earthobservatory.nasa.gov/feeds/earth-observatory.rss",
+    "folder": "海外精选·AI翻译",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "中国大陆·基金申报（官方聚合）",
+    "url": "http://127.0.0.1:8765/funding.xml",
+    "folder": "中国大陆·基金申报",
+    "open_mode": null,
+    "refresh_interval_min": 240
+  },
+  {
+    "title": "学术社交·Reddit 精选",
+    "url": "http://127.0.0.1:8766/reddit-scholar.xml",
+    "folder": "学术社交·公开平台",
+    "open_mode": null,
+    "refresh_interval_min": 120
+  },
+  {
+    "title": "学术社交·Bluesky 学术账号",
+    "url": "http://127.0.0.1:8766/bluesky-scholar.xml",
+    "folder": "学术社交·公开平台",
+    "open_mode": null,
+    "refresh_interval_min": 120
+  },
+  {
+    "title": "学术社交·Mastodon 学术话题",
+    "url": "http://127.0.0.1:8766/mastodon-scholar.xml",
+    "folder": "学术社交·公开平台",
+    "open_mode": null,
+    "refresh_interval_min": 120
+  },
+  {
+    "title": "学术社交·开放科研社区",
+    "url": "http://127.0.0.1:8766/community-scholar.xml",
+    "folder": "学术社交·公开平台",
+    "open_mode": null,
+    "refresh_interval_min": 120
+  },
+  {
+    "title": "知乎·热榜与日常",
+    "url": "http://127.0.0.1:8767/zhihu-hot.xml",
+    "folder": "知乎·知识雷达",
+    "open_mode": null,
+    "refresh_interval_min": 240
+  },
+  {
+    "title": "知乎·科研与学术雷达",
+    "url": "http://127.0.0.1:8767/zhihu-scholar.xml",
+    "folder": "知乎·知识雷达",
+    "open_mode": null,
+    "refresh_interval_min": 240
+  },
+  {
+    "title": "知乎·AI 与科研工具",
+    "url": "http://127.0.0.1:8767/zhihu-ai.xml",
+    "folder": "知乎·知识雷达",
+    "open_mode": null,
+    "refresh_interval_min": 240
+  },
+  {
+    "title": "知识分子",
+    "url": "https://raw.githubusercontent.com/osnsyc/Wechat-Scholar/main/channels/gh_d21f67d094a5.xml",
+    "folder": "微信公众号·科研精选",
+    "open_mode": "web",
+    "refresh_interval_min": null
+  },
+  {
+    "title": "果壳",
+    "url": "https://raw.githubusercontent.com/osnsyc/Wechat-Scholar/main/channels/wxid_5637156371511.xml",
+    "folder": "微信公众号·科研精选",
+    "open_mode": "web",
+    "refresh_interval_min": null
+  },
+  {
+    "title": "环球科学",
+    "url": "https://raw.githubusercontent.com/osnsyc/Wechat-Scholar/main/channels/gh_2657898b5dbf.xml",
+    "folder": "微信公众号·科研精选",
+    "open_mode": "web",
+    "refresh_interval_min": null
+  },
+  {
+    "title": "格致论道讲坛",
+    "url": "https://raw.githubusercontent.com/osnsyc/Wechat-Scholar/main/channels/gh_f8a98419e332.xml",
+    "folder": "微信公众号·科研精选",
+    "open_mode": "web",
+    "refresh_interval_min": null
+  },
+  {
+    "title": "机器之心",
+    "url": "https://raw.githubusercontent.com/osnsyc/Wechat-Scholar/main/channels/gh_dbc0a5474692.xml",
+    "folder": "微信公众号·科研精选",
+    "open_mode": "web",
+    "refresh_interval_min": null
+  },
+  {
+    "title": "微软亚洲研究院",
+    "url": "https://raw.githubusercontent.com/osnsyc/Wechat-Scholar/main/channels/gh_96f9f52be5e3.xml",
+    "folder": "微信公众号·科研精选",
+    "open_mode": "web",
+    "refresh_interval_min": null
+  },
+  {
+    "title": "BioArt",
+    "url": "https://raw.githubusercontent.com/osnsyc/Wechat-Scholar/main/channels/gh_a0a6a4dc7236.xml",
+    "folder": "微信公众号·科研精选",
+    "open_mode": "web",
+    "refresh_interval_min": null
+  },
+  {
+    "title": "丁香园",
+    "url": "https://raw.githubusercontent.com/osnsyc/Wechat-Scholar/main/channels/wxid_9602156020911.xml",
+    "folder": "微信公众号·科研精选",
+    "open_mode": "web",
+    "refresh_interval_min": null
+  },
+  {
+    "title": "热心肠研究院",
+    "url": "https://raw.githubusercontent.com/osnsyc/Wechat-Scholar/main/channels/gh_42bb76643f00.xml",
+    "folder": "微信公众号·科研精选",
+    "open_mode": "web",
+    "refresh_interval_min": null
+  },
+  {
+    "title": "中科院物理所",
+    "url": "https://raw.githubusercontent.com/osnsyc/Wechat-Scholar/main/channels/gh_d00db26cc95c.xml",
+    "folder": "微信公众号·科研精选",
+    "open_mode": "web",
+    "refresh_interval_min": null
+  },
+  {
+    "title": "Linvo说宇宙",
+    "url": "https://raw.githubusercontent.com/osnsyc/Wechat-Scholar/main/channels/gh_7875ab87bbc7.xml",
+    "folder": "微信公众号·科研精选",
+    "open_mode": "web",
+    "refresh_interval_min": null
+  },
+  {
+    "title": "国际新闻界",
+    "url": "https://raw.githubusercontent.com/osnsyc/Wechat-Scholar/main/channels/gh_6cbdc2c3ea8f.xml",
+    "folder": "微信公众号·科研精选",
+    "open_mode": "web",
+    "refresh_interval_min": null
+  },
+  {
+    "title": "集智俱乐部",
+    "url": "https://raw.githubusercontent.com/osnsyc/Wechat-Scholar/main/channels/gh_900a436f047a.xml",
+    "folder": "微信公众号·科研精选",
+    "open_mode": "web",
+    "refresh_interval_min": null
+  },
+  {
+    "title": "哈佛商业评论",
+    "url": "https://wechat2rss.bestblogs.dev/feed/205f074dd6b962e0f4de876e9ebfe70a33bd8f66.xml",
+    "folder": "微信公众号·科研精选",
+    "open_mode": "web",
+    "refresh_interval_min": null
+  },
+  {
+    "title": "国家自然科学基金委员会",
+    "url": "https://raw.githubusercontent.com/osnsyc/Wechat-Scholar/main/channels/gh_c1f2e5989666.xml",
+    "folder": "微信公众号·科研精选",
+    "open_mode": "web",
+    "refresh_interval_min": null
+  },
+  {
+    "title": "青塔",
+    "url": "https://raw.githubusercontent.com/osnsyc/Wechat-Scholar/main/channels/gh_9eaf123d0c6f.xml",
+    "folder": "微信公众号·科研精选",
+    "open_mode": "web",
+    "refresh_interval_min": null
+  },
+  {
+    "title": "科学网·会议预告（含商业征稿）",
+    "url": "http://127.0.0.1:8768/sciencenet.xml",
+    "folder": "学术会议·中文",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "中国化学会·会议日历",
+    "url": "http://127.0.0.1:8768/chemsoc.xml",
+    "folder": "学术会议·中文",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "中国社会科学网·会议动态（含往届）",
+    "url": "http://127.0.0.1:8768/cssn.xml",
+    "folder": "学术会议·中文",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "CCF 秀湖·会议日历（含往届）",
+    "url": "http://127.0.0.1:8768/ccf.xml",
+    "folder": "学术会议·中文",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "CFPs on Artificial Intelligence : WikiCFP",
+    "url": "http://www.wikicfp.com/cfp/rss?cat=artificial%20intelligence",
+    "folder": "学术会议·英文",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "CFPs on Computer Science : WikiCFP",
+    "url": "http://www.wikicfp.com/cfp/rss?cat=computer%20science",
+    "folder": "学术会议·英文",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "CFPs on Social Sciences : WikiCFP",
+    "url": "http://www.wikicfp.com/cfp/rss?cat=social%20sciences",
+    "folder": "学术会议·英文",
+    "open_mode": null,
+    "refresh_interval_min": null
+  },
+  {
+    "title": "Calenda",
+    "url": "https://calenda.org/feed.php?f2lang[]=66",
+    "folder": "学术会议·英文",
+    "open_mode": null,
+    "refresh_interval_min": null
+  }
+]

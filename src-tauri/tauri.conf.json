@@ -7,7 +7,7 @@
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://localhost:1430",
-    "beforeBuildCommand": "node scripts/prepare-mcp.mjs && pnpm build",
+    "beforeBuildCommand": "node scripts/prepare-public-bridge.mjs && node scripts/prepare-mcp.mjs && pnpm build",
     "frontendDist": "../dist"
   },
   "app": {

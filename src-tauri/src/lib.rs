@@ -7,6 +7,7 @@
 // crate paths so the rest of the app keeps referring to `crate::db`,
 // `crate::ingestion`, etc. unchanged.
 pub use papr_core::{ai, db, error, extraction, ingestion, models, opml, sanitize, sync};
+mod public_connectors;
 
 mod ai_formatted;
 mod article_document;
@@ -99,7 +100,10 @@ pub fn run() {
             let data_dir = app.path().app_data_dir().expect("resolve app data dir");
             fs::create_dir_all(&data_dir).ok();
             let db_path = data_dir.join("papr.db");
+            let fresh_database = !db_path.exists();
             let conn = db::open(&db_path).expect("open database");
+            papr_core::starter::initialize(&conn, fresh_database)
+                .expect("initialize public starter subscriptions");
             // Optional desktop extension: never raise the RSS schema version,
             // so existing CLI/fallback builds can keep opening the same DB.
             // An unavailable extension must not prevent ordinary RSS startup.
@@ -132,6 +136,7 @@ pub fn run() {
             let dark_shade = db::get_setting(&conn, "dark_shade").ok().flatten();
 
             app.manage(AppState::new(conn, readers, http));
+            public_connectors::start(app.handle(), &data_dir);
             library_service::spawn(app.handle().clone());
             // Optional workspace: record its separate cache path only. No hot
             // database or network work runs during ordinary RSS startup.

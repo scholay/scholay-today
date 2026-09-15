@@ -20,3 +20,4 @@ pub mod models;
 pub mod opml;
 pub mod sanitize;
 pub mod sync;
+pub mod starter;

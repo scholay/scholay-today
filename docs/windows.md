@@ -8,11 +8,15 @@
 
 当前二进制尚未购买 Windows 代码签名证书，可能出现 SmartScreen 提醒。请核对仓库、提交与 SHA-256；不要为了安装而关闭系统安全保护。
 
-Windows 使用自己的本地资料库，不会自动同步 Mac 上的订阅、阅读记录或凭证。订阅可通过 OPML 导入；需要完整迁移时，应另做停机备份及版本核对，不能复制正在写入的 SQLite/WAL 文件。不要把个人资料库提交到 Git。
+Windows 使用自己的本地资料库。2026-09-09 起首次创建数据库时内置 139 个订阅、21 个目录，来源为经审查的订阅清单，只包含标题、公开 RSS 地址、目录、阅读模式和刷新间隔。不会导入 Mac 数据库、文章、已读状态、AI 密钥、代理凭据、Cookie 或平台授权。现有资料库及用户后续删除的默认订阅不会被重新填充。
+
+普通公网源仍受站点可用性和网络影响，不能保证任意时刻 139 路全部在线。9 路基金、公开学术社交、中文会议聚合由随包的 `scholay-rss-bridge.exe` 提供，只监听 127.0.0.1，随主应用退出；无需最终用户安装 Python，不注册开机服务，不开放局域网端口。初次采集可能需要数分钟，主应用会重试读取。若同端口已有服务，随包组件不终止或替换它。3 路知乎订阅仍需要本人配置连接器和授权，不能以他人的密钥替代。
+
+订阅还可通过 OPML 导入；需要完整迁移时，应另做停机备份及版本核对，不能复制正在写入的 SQLite/WAL 文件。不要把个人资料库提交到 Git。
 
 ## 功能
 
-- Reading / Web / AI formatted 使用同一套交互、外部 AI 配置、订阅与目录代码。
+- 网页 / Markdown / RSS 原文使用同一套交互、外部 AI 配置、订阅与目录代码。未配置 AI 密钥时，网页和 RSS 原文仍可使用，AI 格式化需用户自行配置。
 - 原网页使用 WebView2；主框架抓取运行在独立脚本环境，检查 URL、文档 ID 和导航版本后再接受结果。不开放浏览器调试端口，也不让网页调用原生导出或 MCP。
 - 图文导出继续产生 Markdown、JSON、来源清单和本地图片 ZIP。离线包格式与 Mac 相同。
 - MCP 使用 Windows 命名管道，限制为当前 Windows 账户并拒绝远程客户端；默认关闭、写权限单独开启。设置页生成对应 `.exe` 和管道地址的客户端配置。
@@ -44,11 +48,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-zhihu-window
 
 ## 从源码构建
 
-先准备 Node.js 22、pnpm 9、Rust stable、Visual Studio C++ Build Tools 和 Windows SDK，再执行：
+先准备 Node.js 22、pnpm 9.15.9、Python 3.12（仅打包公开聚合组件）、Rust stable、Visual Studio C++ Build Tools 和 Windows SDK，再执行：
 
 ```powershell
 pnpm install --frozen-lockfile
 pnpm build
+node scripts/prepare-public-bridge.mjs
 pnpm prepare:mcp
 cargo test --workspace --locked
 cargo run --locked -p papr --features windows-smoke --example windows-smoke
