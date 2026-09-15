@@ -1,0 +1,123 @@
+[
+  {
+    "id": "bilibili",
+    "name": "哔哩哔哩",
+    "title": "Z 指数 · 内容热点",
+    "mark": "哔",
+    "url": "https://trends.bilibili.com/content/?tid=-1",
+    "hosts": [
+      "trends.bilibili.com",
+      "passport.bilibili.com",
+      "e.bilibili.com"
+    ],
+    "description": "热门关键词、飙升关键词。内容指数不是播放量，各榜单分别排序。",
+    "access": "当前同步默认分区的公开榜单；部分分区与详情需要平台授权。",
+    "cookie_domains": [
+      "bilibili.com"
+    ],
+    "adapter": true
+  },
+  {
+    "id": "douyin",
+    "name": "抖音",
+    "title": "抖音指数 · 趋势洞察",
+    "mark": "抖",
+    "url": "https://creator.douyin.com/creator-micro/creator-count/arithmetic-index",
+    "hosts": [
+      "creator.douyin.com",
+      "sso.douyin.com"
+    ],
+    "description": "实时热点、飙升热点及平台热点指数。同步各榜单当前首页，不等于全站完整数据。",
+    "access": "公开数据可直接同步。需要登录时完成官方扫码或验证码验证。",
+    "cookie_domains": [
+      "douyin.com"
+    ],
+    "adapter": true
+  },
+  {
+    "id": "kuaishou",
+    "name": "快手",
+    "title": "快手指数",
+    "mark": "快",
+    "url": "https://index.e.kuaishou.com/zhishu",
+    "hosts": [
+      "index.e.kuaishou.com",
+      "sso.e.kuaishou.com"
+    ],
+    "description": "关键词、话题与热门内容。首页装饰性推荐词不作为实时流量数据。",
+    "access": "可先保存授权；真实榜单的结构化适配尚未完成，不以官网页面代替列表。",
+    "cookie_domains": [
+      "kuaishou.com"
+    ],
+    "adapter": false
+  },
+  {
+    "id": "xiaohongshu",
+    "name": "小红书",
+    "title": "灵犀 · 趋势与话题",
+    "mark": "红",
+    "url": "https://idea.xiaohongshu.com/",
+    "hosts": [
+      "idea.xiaohongshu.com"
+    ],
+    "description": "趋势分析、话题与内容洞察，部分能力需要企业账号或产品权限。",
+    "access": "可先保存 Cookie；授权后的榜单结构尚待验证。登录成功不等于拥有数据权限。",
+    "cookie_domains": [
+      "xiaohongshu.com"
+    ],
+    "adapter": false
+  },
+  {
+    "id": "weibo",
+    "name": "微博",
+    "title": "创作者中心 · 热点话题",
+    "mark": "微",
+    "url": "https://me.weibo.com/",
+    "hosts": [
+      "me.weibo.com",
+      "passport.weibo.com",
+      "passport.weibo.cn",
+      "weibo.com"
+    ],
+    "description": "创作者热点话题与创作任务。任务资格与公众热搜榜不同。",
+    "access": "可先保存授权；创作话题的结构化适配尚待验证，不自动参与任务或发布内容。",
+    "cookie_domains": [
+      "weibo.com",
+      "weibo.cn"
+    ],
+    "adapter": false
+  },
+  {
+    "id": "toutiao",
+    "name": "今日头条",
+    "title": "头条号 · 创作选题",
+    "mark": "头",
+    "url": "https://mp.toutiao.com/profile_v4/",
+    "hosts": [
+      "mp.toutiao.com",
+      "sso.toutiao.com"
+    ],
+    "description": "头条号的热点选题和创作参考，与个人作品、收益数据分开。",
+    "access": "可先保存授权；选题栏目结构尚待验证，不读取作品、收益或私信。",
+    "cookie_domains": [
+      "toutiao.com"
+    ],
+    "adapter": false
+  },
+  {
+    "id": "zhihu",
+    "name": "知乎",
+    "title": "热题 · 选题参考",
+    "mark": "知",
+    "url": "https://www.zhihu.com/organization/search-question/init",
+    "hosts": [
+      "www.zhihu.com"
+    ],
+    "description": "知乎热题与全网热点。未提供流量数值的条目只展示榜内排名。",
+    "access": "只同步问题搜索页的选题榜单，不读取账户通知、私信或个人资料。",
+    "cookie_domains": [
+      "zhihu.com"
+    ],
+    "adapter": true
+  }
+]

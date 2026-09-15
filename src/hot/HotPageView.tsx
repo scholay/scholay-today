@@ -16,11 +16,12 @@ export interface HotPageViewProps {
   url: string;
   active: boolean;
   onClose?: () => void;
+  onStateChange?: (state: HotPageViewState | null) => void;
 }
 
 /** An independent source-page viewer. It neither selects an RSS article nor
  * starts extraction, translation, capture, or an AI request. */
-export default function HotPageView({ url, active, onClose }: HotPageViewProps) {
+export default function HotPageView({ url, active, onClose, onStateChange }: HotPageViewProps) {
   const { t } = useTranslation();
   const sourceUrl = safePageViewUrl(url);
   const [state, setState] = useState<HotPageViewState | null>(null);
@@ -31,6 +32,9 @@ export default function HotPageView({ url, active, onClose }: HotPageViewProps) 
   const controllerRef = useRef<{ requestId: string; run: (action: PageViewAction) => void } | null>(null);
   const current = hotPageViewForUrl(state, sourceUrl);
   const externalUrl = safePageViewUrl(current?.currentUrl ?? sourceUrl);
+  const stateChangeRef = useRef(onStateChange);
+  stateChangeRef.current = onStateChange;
+  useEffect(() => { stateChangeRef.current?.(active ? current : null); }, [active, current]);
 
   useEffect(() => {
     const host = hostRef.current;

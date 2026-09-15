@@ -25,24 +25,28 @@ describe("scholay today display branding with compatible local identity", () => 
     expect(read("src/WorkspaceApp.tsx")).toContain('"papr.workspace.v2"');
     expect(read("src/hot/helpers.ts")).toContain('"papr.hotboard.ui.v1"');
   });
-  it("shows the supplied logo and name in both workspace choices", () => {
+  it("shows the small logo and exact product name above three segments in all workspaces", () => {
     const brand = renderToStaticMarkup(createElement(Brand));
     expect(brand).toContain('src="/scholay-logo.png"');
     expect(BRAND_WORDMARK).toBe("SCHOLAY");
     expect(brand).toContain(`aria-label="${APP_NAME}"`);
     expect(brand).toContain(`<span class="app-brand-name">${BRAND_WORDMARK}</span>`);
     expect(brand).not.toContain(`>${APP_NAME}<`);
-    for (const workspace of ["rss", "hotboard"] as const) {
+    for (const workspace of ["rss", "hotboard", "labels"] as const) {
       const html = renderToStaticMarkup(createElement(WorkspaceSwitcher, { workspace, captureBusy: false, onChange: () => {} }));
       expect(html).toContain(APP_NAME);
-      expect(html).toContain(`>${BRAND_WORDMARK}</span>`);
-      expect(html.match(/<button/g)).toHaveLength(2);
+      expect(html).not.toContain(`>${BRAND_WORDMARK}</span>`);
+      expect(html).toContain('src="/scholay-logo.png"');
+      expect(html).toContain('width="14" height="15"');
+      expect(html).toContain(`<span>${APP_NAME}</span>`);
+      expect(html.match(/<button/g)).toHaveLength(3);
       expect(html.match(/aria-pressed="true"/g)).toHaveLength(1);
+      expect(html.match(/<svg/g)).toHaveLength(3);
     }
   });
-  it("centers the complete logo and wordmark group without moving titlebar controls", () => {
+  it("uses a small title-strip icon without changing other brand placements", () => {
     expect(read("src/styles.css")).toMatch(/\.app-brand\s*\{[^}]*align-items:\s*center;[^}]*justify-content:\s*center;/);
-    expect(read("src/workspace.css")).toMatch(/\.workspace-brand\s*\{[^}]*align-self:\s*stretch;/);
+    expect(read("src/workspace.css")).toMatch(/\.workspace-title-brand \.app-brand-logo\s*\{[^}]*width:\s*14px;[^}]*height:\s*15px;/);
   });
   it("uses the corrected MCP identity while preserving executable and local transport", () => {
     expect(read("src-tauri/src/library_service.rs")).toContain('"mcpServers":{"scholay-today":');
@@ -58,7 +62,7 @@ describe("scholay today display branding with compatible local identity", () => 
   });
   it("supports dark mode and does not crowd the immersive reader toolbar", () => {
     expect(read("src/styles.css")).toContain(':root[data-mode="dark"] .app-brand-logo { filter: invert(1); }');
-    expect(read("src/workspace.css")).toContain('.reader-toolbar .workspace-brand { display: none; }');
+    expect(read("src/workspace.css")).toContain('.reader-toolbar .workspace-title-brand { display: none; }');
   });
   it("renames native tray, notifications, and localized product copy", () => {
     expect(read("src-tauri/src/tray.rs")).toContain('.tooltip("scholay today")');

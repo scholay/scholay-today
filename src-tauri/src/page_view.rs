@@ -252,6 +252,56 @@ fn history_script(direction: &str) -> Result<&'static str, String> {
     }
 }
 
+/// Fixed labels-only DOM probe. No article capture or remote IPC grant. Bind
+/// before and after evaluation so a late callback cannot read a new workspace.
+pub(crate) fn label_auth_view(app: &AppHandle, request_id: &str, source: &crate::label_board::Source) -> Result<tauri::Webview, String> {
+    let request = ACTIVE_REQUEST.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("授权页面已关闭")?;
+    if request.request_id != request_id || !request.is_active()
+        || request.initial_url.as_str() != source.url || !request.loaded.load(Ordering::Acquire) {
+        return Err("请等待当前平台授权页面就绪".into());
+    }
+    let view = app.get_webview(LABEL).ok_or("授权页面已关闭")?;
+    if !crate::label_board::allowed(source, &view.url().map_err(|_| "无法确认授权页面")?) {
+        return Err("请回到当前平台的官方页面保存授权".into());
+    }
+    Ok(view)
+}
+
+pub(crate) async fn inspect_label_page(
+    app: AppHandle, request_id: String, source: &crate::label_board::Source, script: String,
+) -> Result<String, String> {
+    let request = ACTIVE_REQUEST.lock().unwrap_or_else(|e| e.into_inner()).clone()
+        .ok_or("请先打开平台页面")?;
+    let initial = url::Url::parse(&source.url).map_err(|_| "平台网址无效")?;
+    if request.request_id != request_id || !request.is_active() || request.initial_url != initial
+        || !request.loaded.load(Ordering::Acquire) {
+        return Err("等待当前平台页面就绪".into());
+    }
+    let epoch = request.navigation_epoch.load(Ordering::Acquire);
+    let view = app.get_webview(LABEL).ok_or("平台页面已关闭")?;
+    // SPA filters can change the URL without a page-load event. Bind to the
+    // actual native URL (not the last load event), including before/after eval.
+    let current = view.url().map_err(|_| "无法确认平台页面")?;
+    if !crate::label_board::allowed(source, &current) { return Err("请在官方平台页面内操作".into()); }
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let tx = Mutex::new(Some(tx));
+    let probe_request = request.clone();
+    let probe_view = view.clone();
+    let expected = current.clone();
+    view.run_on_main_thread(move || {
+        if !probe_request.is_active() || probe_request.navigation_epoch.load(Ordering::Acquire) != epoch
+            || probe_view.url().ok().as_ref() != Some(&expected) { return; }
+        let _ = probe_view.eval_with_callback(script, move |value| {
+            if let Some(tx) = tx.lock().unwrap_or_else(|e| e.into_inner()).take() { let _ = tx.send(value); }
+        });
+    }).map_err(|_| "平台页面不可用")?;
+    let raw = tokio::time::timeout(std::time::Duration::from_secs(4), rx).await
+        .map_err(|_| "平台页面响应较慢")?.map_err(|_| "平台页面已切换")?;
+    if !request.is_active() || request.navigation_epoch.load(Ordering::Acquire) != epoch
+        || view.url().ok().as_ref() != Some(&current) { return Err("平台页面已切换".into()); }
+    Ok(raw)
+}
+
 /// Show the original page at `url` over the given reading-area rectangle.
 /// Each open creates a fresh view whose callbacks capture this request ID.
 #[tauri::command]

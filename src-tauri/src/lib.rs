@@ -26,6 +26,9 @@ pub use windows_smoke::run as run_windows_smoke;
 mod public_fetch;
 mod hot_auth;
 mod hot_board;
+mod label_board;
+mod label_credentials;
+mod label_collector;
 mod hot_sources;
 mod notify;
 mod page_view;
@@ -79,7 +82,11 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_os::init())
-        .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(tauri_plugin_window_state::Builder::default()
+            // Restoring default visibility would show a supposedly hidden
+            // collector; ephemeral labels must never enter window-state data.
+            .with_filter(|label| !label.starts_with("label-collector-"))
+            .build())
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
@@ -304,6 +311,14 @@ pub fn run() {
             ai_formatted::ai_format_page,
             hot_board::list_hot_sources,
             hot_board::get_hot_snapshot,
+            label_board::probe_label_page,
+            label_credentials::get_label_credential_status,
+            label_credentials::restore_label_credentials,
+            label_credentials::save_label_browser_credentials,
+            label_credentials::import_label_cookie,
+            label_credentials::forget_label_credentials,
+            label_collector::collect_label_source,
+            label_collector::cancel_label_collection,
             hot_auth::get_hot_auth_status,
             hot_auth::save_hot_api_token,
             commands::translate_article_preview,

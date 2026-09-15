@@ -55,6 +55,12 @@ pub fn save(target: &str, bytes: &[u8]) -> Result<(), ()> {
     result
 }
 
+pub fn delete(target: &str) -> Result<(), ()> {
+    match unsafe { CredDeleteW(&HSTRING::from(target), CRED_TYPE_GENERIC, None) } {
+        Ok(()) => Ok(()), Err(e) if e.code() == HRESULT::from_win32(ERROR_NOT_FOUND.0) => Ok(()), Err(_) => Err(()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -22,7 +22,13 @@ describe("shared workspace frame with independent RSS and hot content", () => {
     expect(shell).not.toContain("workspace-bar");
     expect(css).not.toContain("workspace-bar");
     expect(css).not.toMatch(/padding-top:\s*(0|14px)|padding-left:\s*18px/);
-    expect(css).toMatch(/\.workspace-sidebar-heading\s*\{[^}]*margin:\s*19px 12px 10px/);
+    expect(css).toMatch(/\.workspace-sidebar-heading\s*\{[^}]*margin:\s*4px 10px 8px/);
+    expect(css).toContain("grid-template-columns: minmax(0, 1fr);");
+    expect(css).not.toContain(".workspace-select");
+    expect(css).not.toMatch(/workspace[^}]+svg\s*\{\s*display:\s*none/);
+    expect(css).toContain('.workspace-title-brand { display: none; }');
+    expect(css).toMatch(/\.workspace-sidebar-heading \.workspace-title-brand\s*\{[^}]*position:\s*absolute;[^}]*top:\s*0;[^}]*pointer-events:\s*none;/);
+    expect(css).toContain(':root[data-platform="mac"] .workspace-sidebar-heading .workspace-title-brand { left: 92px; height: 38px; }');
     for (const file of ["components/Sidebar.tsx", "hot/HotBoard.tsx"]) {
       expect(read(file)).toContain('workspaceSwitch ? <div className="workspace-sidebar-heading">{workspaceSwitch}</div>');
       expect(read(file)).toContain('<div className="titlebar" data-tauri-drag-region />');
@@ -35,14 +41,15 @@ describe("shared workspace frame with independent RSS and hot content", () => {
   it("keeps a switch in every reader focus state without adding duplicate IDs", () => {
     expect(read("components/Reader.tsx").match(/\{focusMode && workspaceSwitch\}/g)).toHaveLength(3);
     const html = renderToStaticMarkup(createElement(WorkspaceSwitcher, { workspace: "hotboard", captureBusy: false, onChange: () => {} }));
-    expect(html.match(/<button/g)).toHaveLength(2);
+    expect(html.match(/<button/g)).toHaveLength(3);
     expect(html.match(/aria-pressed="true"/g)).toHaveLength(1);
     expect(html).toContain('aria-controls="workspace-hotboard-panel"');
+    expect(html).toContain('aria-label="工作区"');
     expect(html).not.toMatch(/\sid=|disabled|正在捕获/);
   });
   it("disables every sidebar/focus switch while a page capture is in progress", () => {
     const html = renderToStaticMarkup(createElement(WorkspaceSwitcher, { workspace: "rss", captureBusy: true, onChange: () => {} }));
-    expect(html.match(/disabled=""/g)).toHaveLength(2);
+    expect(html.match(/disabled=""/g)).toHaveLength(3);
     expect(html).toContain('role="status"');
     expect(read("WorkspaceApp.tsx")).toContain("if (captureBusy) return;");
   });

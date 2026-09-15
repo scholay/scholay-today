@@ -10,6 +10,7 @@ export default defineConfig({
       "extension/test/**/*.test.{js,ts}",
       "src/lib/**/*.test.ts",
       "src/hot/**/*.test.ts",
+      "src/labels/**/*.test.ts",
     ],
     environment: "node",
   },
