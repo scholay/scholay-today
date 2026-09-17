@@ -177,7 +177,7 @@
     "image": "图片",
     "imageUnavailable": "{{alt}}：暂时无法加载，点击查看原图",
     "tab": "Markdown",
-    "tabHint": "优先显示本地 Markdown；没有缓存时自动抓取网页并整理",
+    "tabHint": "优先显示本地 Markdown（含结构化清洗）；没有缓存时才抓取网页并整理",
     "language": "输出语言（不影响界面语言）",
     "display": "整理稿显示方式",
     "preview": "预览",
@@ -203,6 +203,7 @@
     "truncated": "来源已截断",
     "truncatedHint": "抓取内容已截断，并非完整网页",
     "reviewHint": "由 AI 基于抓取的网页整理；重要信息请对照来源核验。",
+    "structuredHint": "本地结构化清洗结果，以 Markdown 呈现。RSS 原文未改动，可随时回溯。",
     "formattingHint": "正在将抓取内容整理为 Markdown。",
     "capturedHint": "已保留本次抓取原文；重试会重新读取当前网页。",
     "emptyHint": "正在准备自动读取并整理原网页。",
@@ -313,7 +314,7 @@
     },
     "sub": {
       "general": "订阅源刷新、默认行为、启动方式",
-      "appearance": "主题、强调色、密度",
+      "appearance": "主题、强调色、密度、缩放",
       "reading": "正文字体、字号、版面",
       "subscriptions": "{{count}} 个订阅源",
       "filters": "针对新文章的关键词规则",
@@ -375,6 +376,8 @@
       "densityCompact": "紧凑",
       "densityCozy": "适中",
       "densitySpacious": "宽松",
+      "uiScale": "界面缩放",
+      "uiScaleDesc": "放大或缩小整个界面。也可按 ⌘+ / ⌘- / ⌘0",
       "listStyle": "文章列表样式",
       "listStyleList": "列表",
       "listStyleCard": "卡片",
@@ -513,7 +516,10 @@
       "commandPalette": "命令面板",
       "refreshAll": "刷新所有订阅源",
       "addFeed": "添加订阅源",
-      "openSettings": "设置"
+      "openSettings": "设置",
+      "zoomIn": "放大界面",
+      "zoomOut": "缩小界面",
+      "zoomReset": "恢复界面比例"
     },
     "notifications": {
       "system": "系统通知",

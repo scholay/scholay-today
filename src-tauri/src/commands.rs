@@ -1068,16 +1068,26 @@ pub struct StorageStats {
     db_bytes: i64,
     article_count: i64,
     feed_count: i64,
+    folder_count: i64,
+    cleaned_count: i64,
 }
 
 #[tauri::command]
 pub async fn storage_stats(state: State<'_, AppState>) -> AppResult<StorageStats> {
     let conn = state.read().await;
     let (db_bytes, article_count, feed_count) = db::storage_stats(&conn)?;
+    let folder_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM folders", [], |r| r.get(0))
+        .unwrap_or(0);
+    let cleaned_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM article_structured", [], |r| r.get(0))
+        .unwrap_or(0);
     Ok(StorageStats {
         db_bytes,
         article_count,
         feed_count,
+        folder_count,
+        cleaned_count,
     })
 }
 

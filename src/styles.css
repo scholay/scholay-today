@@ -436,7 +436,8 @@ button { font-family: inherit; }
   height: 38px;
   display: flex;
   align-items: center;
-  padding: 0 14px;
+  justify-content: center;
+  padding: 0;
   z-index: 50;
   -webkit-app-region: drag;
   pointer-events: none;
@@ -451,7 +452,7 @@ button { font-family: inherit; }
   min-height: 0;
   min-width: 0;
 }
-/* On macOS the sidebar reserves a 38px strip at the top so the brand row
+/* On macOS the sidebar reserves a 38px strip at the top so the first row
    clears the overlay traffic lights (configured in tauri.conf.json). On
    Windows/Linux the native title bar already sits above the webview, so a
    thin breathing strip is enough — without it the search bar would sit
@@ -900,7 +901,7 @@ button { font-family: inherit; }
   display: flex;
   align-items: center;
   gap: 2px;
-  padding: 6px 18px 6px 18px;
+  padding: 0 18px;
   height: 38px;
   flex-shrink: 0;
   border-bottom: 1px solid transparent;
@@ -1067,8 +1068,8 @@ button { font-family: inherit; }
   color: var(--muted);
 }
 
-/* Provenance for a structured (agent-cleaned) body, so an RSS-only summary is
-   never read as the full article. */
+/* Provenance for structured cleaning on the Markdown tab. The RSS original
+   stays untouched. */
 .reader-structured {
   display: flex;
   flex-wrap: wrap;
@@ -1495,7 +1496,7 @@ button { font-family: inherit; }
 /* In focus mode the reader is the leftmost pane, so its toolbar must clear
    the macOS traffic-light buttons — which also reveal on hover in fullscreen. */
 .window.focus .reader-toolbar {
-  padding-left: 80px;
+  padding-left: 16px;
 }
 
 /* Toast — a single transient pill. The dwell time is JS-driven (it varies by

@@ -1,5 +1,7 @@
 export const APP_NAME = "scholay today";
+export const APP_SHORT_NAME = "TODAY";
 export const BRAND_WORDMARK = "SCHOLAY";
+export const APP_VERSION = "0.16.0";
 
 /** Display branding only; persisted keys and native app identity stay stable. */
 export default function Brand({ className = "", iconOnly = false }: { className?: string; iconOnly?: boolean }) {

@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import type { AiFormattedDraft } from "../types";
+import type { AiFormattedDraft, StructuredDocument } from "../types";
 import { capturedSourceForPreview, formattedMarkdownFilename, isAiFormatBusy, isAiFormatLanguage, prepareObsidianMarkdown, splitMarkdownFrontmatter, type AiFormatJob, type AiFormatLanguage } from "../lib/aiFormatted";
 import { capturedImageSources, renderMarkdown } from "../lib/markdown";
 import { fetchCapturedImage } from "../api";
@@ -30,6 +30,7 @@ interface Props {
   articleTitle: string;
   hasUrl: boolean;
   draft: AiFormattedDraft | null;
+  structured?: StructuredDocument | null;
   loading: boolean;
   loadError: string | null;
   job: AiFormatJob | null;
@@ -42,14 +43,19 @@ interface Props {
   onToast: (message: string) => void;
 }
 
-export default function AIFormatted({ articleId, articleTitle, hasUrl, draft, loading, loadError, job, language, onLanguageChange, onReformat, onRetry, onToast }: Props) {
+export default function AIFormatted({ articleId, articleTitle, hasUrl, draft, structured = null, loading, loadError, job, language, onLanguageChange, onReformat, onRetry, onToast }: Props) {
   const { t, i18n } = useTranslation();
   const [display, setDisplay] = useState<"preview" | "source">("preview");
   const busy = isAiFormatBusy(job);
+  const structuredMarkdown = structured?.markdown?.trim() ? structured.markdown : "";
+  const markdown = draft?.markdown ?? structuredMarkdown;
+  const hasDocument = Boolean(markdown);
+  const captureId = draft?.captureId ?? structured?.captureId;
+  const viewingStructured = !draft && Boolean(structuredMarkdown);
   const error = job?.error ?? loadError;
-  const capturedOnly = capturedSourceForPreview(Boolean(draft), job);
+  const capturedOnly = capturedSourceForPreview(hasDocument, job);
   const capturedUrl = safePageViewUrl(capturedOnly?.sourceUrl);
-  const parts = useMemo(() => splitMarkdownFrontmatter(draft?.markdown ?? ""), [draft?.markdown]);
+  const parts = useMemo(() => splitMarkdownFrontmatter(markdown), [markdown]);
   // The backend restored these links from protected capture placeholders;
   // every fetch also checks exact asset ownership against the stored snapshot.
   const images = useMemo(() => capturedImageSources(parts.body), [parts.body]);
@@ -113,7 +119,7 @@ export default function AIFormatted({ articleId, articleTitle, hasUrl, draft, lo
     if (!wide) setOutlineExpanded(false);
   };
   useEffect(() => {
-    if (display !== "preview" || !draft || !bodyRef.current) return;
+    if (display !== "preview" || !hasDocument || !captureId || !bodyRef.current) return;
     let alive = true;
     const queue = Array.from(bodyRef.current.querySelectorAll<HTMLImageElement>("img[data-captured-src]"));
     const load = async () => {
@@ -121,7 +127,7 @@ export default function AIFormatted({ articleId, articleTitle, hasUrl, draft, lo
         const img = queue.shift()!;
         const src = img.dataset.capturedSrc!;
         try {
-          const bytes = await fetchCapturedImage(articleId, draft.captureId, src);
+          const bytes = await fetchCapturedImage(articleId, captureId, src);
           if (alive) img.src = imageDataUrl(src, bytes);
         } catch {
           if (!alive) return;
@@ -137,15 +143,15 @@ export default function AIFormatted({ articleId, articleTitle, hasUrl, draft, lo
     // an old response from modifying the next article's DOM.
     void Promise.all(Array.from({ length: Math.min(3, queue.length) }, load));
     return () => { alive = false; };
-  }, [html, articleId, draft?.captureId, display, t]);
-  const sourceUrl = safePageViewUrl(draft?.sourceUrl);
+  }, [html, articleId, captureId, display, t]);
+  const sourceUrl = safePageViewUrl(draft?.sourceUrl ?? structured?.sourceUrl);
   const date = (value: string) => {
     const parsed = new Date(value);
     return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString(i18n.language);
   };
   const copy = async () => {
-    if (!draft) return;
-    try { await navigator.clipboard.writeText(draft.markdown); onToast(t("aiFormatted.copied")); }
+    if (!markdown) return;
+    try { await navigator.clipboard.writeText(markdown); onToast(t("aiFormatted.copied")); }
     catch (cause) { reportError(cause); }
   };
   const onLinkClick = (event: React.MouseEvent) => {
@@ -161,14 +167,14 @@ export default function AIFormatted({ articleId, articleTitle, hasUrl, draft, lo
       {hasOutline && <button ref={outlineButtonRef} type="button" className="md-outline-toggle" aria-expanded={showOutline} aria-controls={outlineId} onClick={() => setOutlineExpanded(!showOutline)}><Icon name="list" size={14}/>{t("aiFormatted.outline")}</button>}
       <div className="ai-formatted-display" role="group" aria-label={t("aiFormatted.display")}>
         <button type="button" aria-pressed={display === "preview"} onClick={() => setDisplay("preview")}>{t("aiFormatted.preview")}</button>
-        <button type="button" disabled={!draft} aria-pressed={display === "source"} onClick={() => setDisplay("source")}>{t("aiFormatted.source")}</button>
+        <button type="button" disabled={!hasDocument} aria-pressed={display === "source"} onClick={() => setDisplay("source")}>{t("aiFormatted.source")}</button>
       </div>
       <div className="ai-formatted-tools">
         <AiFormatLanguageSelect value={language} onChange={onLanguageChange} disabled={busy}/>
-        {draft && !error && <button type="button" className="ai-format-action" disabled={busy || loading} title={t("aiFormatted.regenerateHint")} onClick={onReformat}><Icon name="sparkle" size={13}/>{t("aiFormatted.regenerate")}</button>}
-        <button type="button" className="ai-format-icon" disabled={!draft} title={t("aiFormatted.copy")} aria-label={t("aiFormatted.copy")} onClick={() => void copy()}><Icon name="copy" size={14}/></button>
-        <button type="button" className="ai-format-icon" disabled={!draft} title={t("aiFormatted.download")} aria-label={t("aiFormatted.download")} onClick={() => {
-          if (draft) downloadFile(draft.markdown, formattedMarkdownFilename(draft.sourceTitle || articleTitle, articleId), "text/markdown;charset=utf-8");
+        {hasDocument && !error && <button type="button" className="ai-format-action" disabled={busy || loading} title={t("aiFormatted.regenerateHint")} onClick={onReformat}><Icon name="sparkle" size={13}/>{t("aiFormatted.regenerate")}</button>}
+        <button type="button" className="ai-format-icon" disabled={!hasDocument} title={t("aiFormatted.copy")} aria-label={t("aiFormatted.copy")} onClick={() => void copy()}><Icon name="copy" size={14}/></button>
+        <button type="button" className="ai-format-icon" disabled={!hasDocument} title={t("aiFormatted.download")} aria-label={t("aiFormatted.download")} onClick={() => {
+          if (markdown) downloadFile(markdown, formattedMarkdownFilename(draft?.sourceTitle || articleTitle, articleId), "text/markdown;charset=utf-8");
         }}><Icon name="arrow-down" size={15}/></button>
       </div>
     </div>
@@ -179,11 +185,11 @@ export default function AIFormatted({ articleId, articleTitle, hasUrl, draft, lo
       </>}
     <div ref={scrollRef} className="reader-scroll ai-formatted-scroll">
       <article className="article reader-content">
-        {busy && job && <div className="ai-format-progress" role="status"><span className="reader-web-spinner" aria-hidden="true"/><span>{t(job.phase === "opening" ? "aiFormatted.opening" : job.phase === "capturing" ? "aiFormatted.capturing" : "aiFormatted.formatting")}{draft && ` · ${t("aiFormatted.previousKept")}`}{job.source && <small>{job.source.sourceUrl} · {t("aiFormatted.characters", { count: job.source.charCount })}{job.source.truncated && <span className="ai-format-truncated"> · {t("aiFormatted.truncatedHint")}</span>}</small>}</span></div>}
-        {error && <div className="ai-format-error" role="alert"><div><strong>{t("aiFormatted.failed")}</strong><p>{error}</p>{draft && <p>{t("aiFormatted.previousKept")}</p>}</div><button type="button" className="ai-format-retry" onClick={onRetry}><Icon name="refresh" size={13}/>{t("common.retry")}</button></div>}
-        {loading && !draft && !busy && <div className="ai-format-progress" role="status"><span className="reader-web-spinner" aria-hidden="true"/>{t("common.loading")}</div>}
-        {draft ? <>
-          <details className="ai-format-metadata">
+        {busy && job && <div className="ai-format-progress" role="status"><span className="reader-web-spinner" aria-hidden="true"/><span>{t(job.phase === "opening" ? "aiFormatted.opening" : job.phase === "capturing" ? "aiFormatted.capturing" : "aiFormatted.formatting")}{hasDocument && ` · ${t("aiFormatted.previousKept")}`}{job.source && <small>{job.source.sourceUrl} · {t("aiFormatted.characters", { count: job.source.charCount })}{job.source.truncated && <span className="ai-format-truncated"> · {t("aiFormatted.truncatedHint")}</span>}</small>}</span></div>}
+        {error && <div className="ai-format-error" role="alert"><div><strong>{t("aiFormatted.failed")}</strong><p>{error}</p>{hasDocument && <p>{t("aiFormatted.previousKept")}</p>}</div><button type="button" className="ai-format-retry" onClick={onRetry}><Icon name="refresh" size={13}/>{t("common.retry")}</button></div>}
+        {loading && !hasDocument && !busy && <div className="ai-format-progress" role="status"><span className="reader-web-spinner" aria-hidden="true"/>{t("common.loading")}</div>}
+        {hasDocument ? <>
+          {draft ? <details className="ai-format-metadata">
             <summary><span>{t("aiFormatted.metadata")}</span><span className="ai-format-source-label" title={sourceUrl ?? undefined}>{sourceUrl ?? draft.sourceTitle}</span>{draft.sourceTruncated && <span className="ai-format-truncated">{t("aiFormatted.truncated")}</span>}</summary>
             <dl>
               <dt>{t("aiFormatted.page")}</dt><dd>{draft.sourceTitle}</dd>
@@ -196,9 +202,19 @@ export default function AIFormatted({ articleId, articleTitle, hasUrl, draft, lo
             {draft.warnings.length > 0 && <ul>{draft.warnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul>}
             {parts.frontmatter !== null && <details><summary>Frontmatter</summary><pre>{parts.frontmatter}</pre></details>}
             <details><summary>{t("aiFormatted.capturedText")}</summary><pre>{draft.sourceText}</pre></details>
-          </details>
-          {display === "preview" ? <div ref={bodyRef} className="article-body ai-formatted-body" onClick={onLinkClick} dangerouslySetInnerHTML={previewMarkup}/> : <textarea className="ai-formatted-source" readOnly spellCheck={false} aria-label={t("aiFormatted.source")} value={draft.markdown}/>}
-          <p className="ai-format-footnote">{t("aiFormatted.reviewHint")}</p>
+          </details> : viewingStructured && structured ? <div className="reader-structured" role="note">
+            <Icon name="sparkle" size={12} />
+            <span>
+              {t(`reader.structuredSource.${structured.sourceKind}`, { defaultValue: t("reader.structuredSource.unknown") })}
+              {" · "}
+              {t("reader.structuredStats", { words: structured.words ?? 0, images: structured.images ?? 0 })}
+            </span>
+            {(structured.truncated ? [t("reader.structuredTruncated")] : []).concat(structured.warnings ?? []).map((warning) => (
+              <small key={warning}>{warning}</small>
+            ))}
+          </div> : null}
+          {display === "preview" ? <div ref={bodyRef} className="article-body ai-formatted-body" onClick={onLinkClick} dangerouslySetInnerHTML={previewMarkup}/> : <textarea className="ai-formatted-source" readOnly spellCheck={false} aria-label={t("aiFormatted.source")} value={markdown}/>}
+          <p className="ai-format-footnote">{t(viewingStructured ? "aiFormatted.structuredHint" : "aiFormatted.reviewHint")}</p>
         </> : capturedOnly ? <div className="ai-formatted-capture-preview">
           <h2 className="ai-format-status-title">{capturedOnly.sourceTitle || articleTitle}</h2>
           {!busy && <p className="ai-format-captured-hint">{t("aiFormatted.capturedHint")}</p>}

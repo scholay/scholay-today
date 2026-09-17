@@ -101,6 +101,24 @@ describe("Markdown outline interactions", () => {
     expect(host.querySelector("nav")).toBeNull();
     expect(host.querySelector(".md-chinese-paragraph")?.textContent).toBe("只有普通的中文正文。");
   });
+  it("renders stored structured cleaning as Markdown images without inventing an AI draft", async () => {
+    await act(() => root.render(createElement(AIFormatted, {
+      articleId: 42, articleTitle: "研究文章", hasUrl: true, draft: null,
+      structured: {
+        articleId: 42, cleaned: true, captureId: "clean-capture", sourceKind: "cached_article",
+        sourceUrl: "https://example.org/article", words: 12, images: 1,
+        markdown: "## 方法\n\n正文\n\n![图一](<https://example.org/figure.png>)",
+      },
+      loading: false, loadError: null, job: null, language: "zh",
+      onLanguageChange: vi.fn(), onReformat: regenerate, onRetry: vi.fn(), onToast: vi.fn(),
+    })));
+    expect(host.querySelector(".reader-structured")?.textContent).toContain("reader.structuredSource.cached_article");
+    expect(host.querySelector("h2")?.textContent).toBe("方法");
+    expect(host.querySelector("img")?.getAttribute("data-captured-src") ?? host.querySelector("img")?.src).toContain("https://example.org/figure.png");
+    await click(button("aiFormatted.source"));
+    expect(host.querySelector("textarea")?.value).toContain("![图一](<https://example.org/figure.png>)");
+    expect(regenerate).not.toHaveBeenCalled();
+  });
   it("preserves hydrated picture nodes while the active heading and outline change", async () => {
     await mount(`${draft.markdown}\n\n![研究图](https://example.org/figure.png)`);
     const picture = host.querySelector("img")!;

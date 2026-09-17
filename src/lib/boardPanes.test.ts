@@ -5,6 +5,7 @@ import { resizePaneWidths } from "./paneGeometry";
 describe("independent resizable board geometry", () => {
   it("uses separate persistence keys and tolerates malformed preferences", () => {
     expect(boardPaneKey("labels")).not.toBe(boardPaneKey("hotboard"));
+    expect(boardPaneKey("calendar")).not.toBe(boardPaneKey("labels"));
     expect(parseBoardPanes("{", "hotboard")).toEqual({ sidebarWidth: 248, listWidth: 360 });
     expect(parseBoardPanes('{"sidebarWidth":10000,"listWidth":"large"}', "labels")).toEqual({ sidebarWidth: 420, listWidth: 370 });
   });

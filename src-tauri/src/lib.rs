@@ -271,6 +271,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             article_clean::article_structured_document,
+            article_clean::list_structured_documents,
             article_export::export_article_bundle,
             batch_export::preview_article_bundles,
             batch_export::export_article_bundles,

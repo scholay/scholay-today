@@ -160,3 +160,11 @@ wires up an ambient SessionStart hook (Claude Code, Codex, OpenCode).
 | **Any** | Prebuilt `papr-<target>.tar.gz` from the [latest release](https://github.com/l0ng-ai/papr/releases/latest), or `cargo build --release -p papr-cli` |
 
 > **Full command reference, agent setup, and install options → [docs/cli.md](docs/cli.md)**
+
+## 赞助
+
+软件保持免费开源。若你愿意请作者喝杯咖啡、催更下一版，可用微信扫描下方赞助码：
+
+<p align="center">
+  <img src="docs/community/yaofan.png" alt="微信赞助码：感谢您的赞助（催更）" width="280" />
+</p>

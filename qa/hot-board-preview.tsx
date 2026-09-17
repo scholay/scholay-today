@@ -78,23 +78,22 @@ let setCaptureBusy: (busy: boolean) => void = () => {};
 function Harness() {
   const [active, changeActive] = useState(false); setActive = changeActive;
   const [captureBusy, changeCaptureBusy] = useState(false); setCaptureBusy = changeCaptureBusy;
-  const chooseWorkspace = (next: Workspace) => { if (!captureBusy) changeActive(next === "hotboard"); };
-  const workspaceSwitch = <WorkspaceSwitcher workspace={active ? "hotboard" : "rss"} captureBusy={captureBusy} onChange={chooseWorkspace}/>;
+  const chooseWorkspace = (next: Workspace) => { if (!captureBusy) changeActive(next === "hot"); };
   return <QueryClientProvider client={queryClient}>
     <div className="workspace-host">
+      <WorkspaceSwitcher workspace={active ? "hot" : "rss"} captureBusy={captureBusy} onChange={chooseWorkspace}/>
       <div className="workspace-panels">
         <div id="workspace-rss-panel" className={`workspace-panel ${active ? "is-inactive" : ""}`} role="region" aria-label="RSS" aria-hidden={active} inert={active}>
           <div className="app-shell"><div className="window">
             <aside className="sidebar" aria-label="Synthetic RSS sidebar">
               <div className="titlebar" data-tauri-drag-region/>
-              <div className="workspace-sidebar-heading">{workspaceSwitch}</div>
               <p style={{ padding: 12 }}>Synthetic RSS placeholder. No RSS API is connected.</p>
             </aside>
             <main style={{ gridColumn: "2 / -1", padding: 20 }}>Synthetic RSS content. Existing RSS APIs and private data are not connected.</main>
           </div></div>
         </div>
         <div id="workspace-hotboard-panel" className={`workspace-panel ${active ? "" : "is-inactive"}`} role="region" aria-label="热榜" aria-hidden={!active} inert={!active}>
-          <HotBoard active={active} workspaceSwitch={workspaceSwitch}/>
+          <HotBoard active={active}/>
         </div>
       </div>
     </div>
@@ -112,32 +111,34 @@ let checks = 0;
 try {
   flushSync(() => root.render(<Harness/>)); await frame();
   check(!calls.some((call) => call.command.startsWith("get_hot") || call.command === "list_hot_sources"), "Inactive cold start requested hot data"); checks++;
-  check(!document.querySelector(".workspace-bar") && document.querySelector(".workspace-host")?.firstElementChild?.classList.contains("workspace-panels"), "A global workspace strip still reserves space"); checks++;
-  check(document.querySelectorAll(".workspace-sidebar-heading > .workspace-switcher").length === 2 && [...document.querySelectorAll(".workspace-switcher")].every((element) => element.closest(".sidebar, .hot-sidebar")), "Workspace controls are not hosted inside both sidebar headings"); checks++;
+  check(!document.querySelector(".workspace-bar") && !!document.querySelector(".workspace-host > .workspace-rail") && !!document.querySelector(".workspace-host > .workspace-panels"), "Activity rail is missing or a global workspace strip still reserves space"); checks++;
+  check(document.querySelectorAll(".workspace-rail").length === 1 && !document.querySelector(".sidebar .workspace-rail, .hot-sidebar .workspace-rail"), "Workspace rail is not hosted once at the window edge"); checks++;
   check(!document.querySelector(".sb-brand, .hot-brand"), "Sidebar title was duplicated beside the relocated switch"); checks++;
-  check(!document.querySelector(".workspace-switcher [id]") && [...document.querySelectorAll(".workspace-switcher button")].every((button) => document.getElementById(button.getAttribute("aria-controls") ?? "")), "Workspace switches have duplicate IDs or unresolved controlled panels"); checks++;
+  check(!document.querySelector(".workspace-rail [id]") && [...document.querySelectorAll(".workspace-rail button[aria-controls]")].every((button) => document.getElementById(button.getAttribute("aria-controls") ?? "")), "Workspace switches have duplicate IDs or unresolved controlled panels"); checks++;
   const previousSidebarWidth = document.documentElement.style.getPropertyValue("--col-sidebar");
   document.documentElement.style.setProperty("--col-sidebar", "200px");
   await document.fonts.ready; await frame();
   for (const selector of [".sidebar", ".hot-sidebar"]) {
     const sidebar = document.querySelector<HTMLElement>(selector)!;
     const sidebarRect = sidebar.getBoundingClientRect();
-    const tabs = sidebar.querySelector<HTMLElement>(".workspace-tabs")!;
-    const tabRect = tabs.getBoundingClientRect();
-    check(Math.abs(sidebarRect.width - 200) <= 1 && tabRect.left >= sidebarRect.left + 10 && tabRect.right <= sidebarRect.right - 10, `${selector} switch overflows the 200px minimum sidebar`); checks++;
-    check(tabRect.top >= sidebarRect.top + 38 && !!sidebar.querySelector(".titlebar[data-tauri-drag-region]"), `${selector} switch overlaps native traffic lights or has no drag strip`); checks++;
+    check(Math.abs(sidebarRect.width - 200) <= 1, `${selector} is not the 200px minimum sidebar`); checks++;
+    check(!!sidebar.querySelector(".titlebar[data-tauri-drag-region]"), `${selector} has no drag strip`); checks++;
   }
+  const rail = document.querySelector<HTMLElement>(".workspace-rail")!;
+  const railRect = rail.getBoundingClientRect();
+  const firstChoice = rail.querySelector<HTMLElement>('button[aria-controls="workspace-rss-panel"]')!;
+  check(firstChoice.getBoundingClientRect().top >= railRect.top + 38, "Activity icons overlap the native traffic-light strip"); checks++;
   check(Math.abs(document.querySelector(".hot-workspace-toolbar")!.getBoundingClientRect().top - document.querySelector(".hot-workspace")!.getBoundingClientRect().top) <= 1, "Hot toolbar is displaced by the removed global row"); checks++;
   if (previousSidebarWidth) document.documentElement.style.setProperty("--col-sidebar", previousSidebarWidth);
   else document.documentElement.style.removeProperty("--col-sidebar");
   flushSync(() => setCaptureBusy(true)); await frame();
-  const lockedSwitches = [...document.querySelectorAll<HTMLButtonElement>(".workspace-switcher button")];
-  check(lockedSwitches.length === 4 && lockedSwitches.every((button) => button.disabled), "Capture lock did not disable every mounted workspace switch"); checks++;
-  flushSync(() => document.querySelector<HTMLButtonElement>('#workspace-rss-panel button[aria-controls="workspace-hotboard-panel"]')!.click());
-  check(document.getElementById("workspace-hotboard-panel")!.hasAttribute("inert") && document.querySelectorAll(".workspace-capture-status[role='status']").length === 2, "A locked switch changed workspace or lost capture feedback"); checks++;
+  const lockedSwitches = [...document.querySelectorAll<HTMLButtonElement>(".workspace-rail button")];
+  check(lockedSwitches.length === 5 && lockedSwitches.every((button) => button.disabled), "Capture lock did not disable every mounted workspace switch"); checks++;
+  flushSync(() => document.querySelector<HTMLButtonElement>('button[aria-controls="workspace-hotboard-panel"]')!.click());
+  check(document.getElementById("workspace-hotboard-panel")!.hasAttribute("inert") && document.querySelectorAll(".workspace-capture-status[role='status']").length === 1, "A locked switch changed workspace or lost capture feedback"); checks++;
   flushSync(() => setCaptureBusy(false));
-  click('#workspace-rss-panel button[aria-controls="workspace-hotboard-panel"]');
-  check(document.getElementById("workspace-rss-panel")!.hasAttribute("inert") && !document.getElementById("workspace-hotboard-panel")!.hasAttribute("inert"), "Relocated sidebar control did not activate its workspace"); checks++;
+  click('button[aria-controls="workspace-hotboard-panel"]');
+  check(document.getElementById("workspace-rss-panel")!.hasAttribute("inert") && !document.getElementById("workspace-hotboard-panel")!.hasAttribute("inert"), "Activity rail did not activate its workspace"); checks++;
   await until(() => document.querySelectorAll(".hot-card").length === 12 && inFlight === 0 && !document.querySelector(".hot-spinner"));
   check(peak <= 4, `Source concurrency exceeded four (${peak})`);
   check(!calls.some((call) => call.sourceId === "synthetic-2" && call.refresh), "Fresh daily source was force-refreshed");

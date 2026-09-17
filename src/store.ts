@@ -5,8 +5,11 @@
 import { create } from "zustand";
 import i18n from "./i18n";
 import * as api from "./api";
+import { applyUiScale, UI_SCALES, type UiScale } from "./lib/uiScale";
 import { loadDefaultOpenMode } from "./lib/readerViewMode";
 import type { ArticleQuery } from "./types";
+export type { UiScale } from "./lib/uiScale";
+export { applyUiScale, stepUiScale, UI_SCALES } from "./lib/uiScale";
 
 /** Appearance is two independent axes: a colour `Palette` (the family — warm
  *  Paper, cool Frost, high-contrast) and a light/dark `Mode`. Their product is
@@ -154,6 +157,7 @@ interface UiState {
   palette: Palette;
   mode: Mode;
   density: Density;
+  uiScale: UiScale;
   viewMode: ViewMode;
   readerFont: ReaderFont;
   readerSize: number;
@@ -191,6 +195,7 @@ interface UiState {
   setPalette: (p: Palette) => void;
   setMode: (m: Mode) => void;
   setDensity: (d: Density) => void;
+  setUiScale: (scale: UiScale) => void;
   setViewMode: (v: ViewMode) => void;
   setReaderFont: (v: ReaderFont) => void;
   setReader: (p: Partial<Pick<UiState, "readerSize" | "readerLeading" | "readerWidth">>) => void;
@@ -298,6 +303,7 @@ export const useUi = create<UiState>((set, get) => ({
     ["compact", "cozy", "spacious"],
     "cozy",
   ),
+  uiScale: ls.oneOf<UiScale>("uiScale", UI_SCALES, "100"),
   viewMode: ls.oneOf<ViewMode>("viewMode", ["list", "card"], "list"),
   readerFont: loadReaderFont(),
   readerSize: ls.num("readerSize", 17, READER_BOUNDS.size.min, READER_BOUNDS.size.max),
@@ -336,6 +342,7 @@ export const useUi = create<UiState>((set, get) => ({
   setPalette: (palette) => { ls.set("palette", palette); mirrorAppearance(palette, get().mode); set({ palette }); },
   setMode: (mode) => { ls.set("mode", mode); mirrorAppearance(get().palette, mode); set({ mode }); },
   setDensity: (density) => { ls.set("density", density); set({ density }); },
+  setUiScale: (uiScale) => { ls.set("uiScale", uiScale); applyUiScale(uiScale); set({ uiScale }); },
   setViewMode: (viewMode) => { ls.set("viewMode", viewMode); set({ viewMode }); },
   setReaderFont: (readerFont) => { ls.set("readerFont", readerFont); set({ readerFont }); },
   setReader: (p) => {

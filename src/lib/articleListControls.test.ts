@@ -28,8 +28,8 @@ describe("title-strip controls", () => {
     expect(css).toMatch(/\.list-meta\s*\{[^}]*height: 38px;[^}]*flex-wrap: nowrap;/);
     expect(css).toContain("@container list-heading (max-width: 330px)");
     expect(css).toMatch(/\.list-meta-btn\s*\{[^}]*-webkit-app-region: no-drag;/);
-    expect(workspace).toMatch(/\.workspace-tabs\s*\{[^}]*-webkit-app-region: no-drag;/);
+    expect(workspace).toMatch(/\.workspace-rail\s*\{[^}]*-webkit-app-region: no-drag;/);
     expect(workspace).not.toContain(".workspace-select");
-    expect(workspace).toContain('.reader-toolbar .workspace-title-brand { display: none; }');
+    expect(workspace).not.toContain(".workspace-tabs");
   });
 });

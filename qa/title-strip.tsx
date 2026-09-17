@@ -24,18 +24,20 @@ const failures: string[] = [];
 let cases = 0;
 function render(sidebar: number, list: number, hot: boolean, busy = false) {
   flushSync(() => root.render(<I18nextProvider i18n={i18n}>
-    <div style={{ display: "grid", gridTemplateColumns: `${sidebar}px ${list}px 400px`, width: sidebar + list + 400, height: 400, position: "relative", border: "1px solid var(--hair)" }}>
-      <aside className={hot ? "hot-sidebar" : "sidebar"} style={{ gridRow: 1 }}>
-        <div className="titlebar" data-tauri-drag-region><span style={{ letterSpacing: 6, color: "#e87055" }}>●●●</span></div>
-        <div className="workspace-sidebar-heading"><WorkspaceSwitcher workspace={hot ? "hotboard" : "rss"} captureBusy={busy} onChange={() => workspaceCalls++}/></div>
-        <div className="sidebar-search">Search articles</div>
-        <div className="sb-section-title">LIBRARY · SYNTHETIC</div>
-      </aside>
-      <section className="list"><div className="list-header" data-tauri-drag-region>
-        <ArticleListControls sortOldest={false} unreadOnly={false} onToggleSort={() => sortCalls++} onToggleUnreadOnly={() => filterCalls++} onMarkAll={() => markCalls++}/>
-        <h1 className="list-title"><span className="list-title-text">微信公众号·科研精选</span><span className="list-title-meta"><span className="count">60+ articles</span></span></h1>
-      </div><div className="art"><div className="art-title">Synthetic article · only toolbar layout is under test</div></div></section>
-      <section className="reader"><div className="reader-toolbar"><WorkspaceSwitcher workspace="rss" captureBusy={false} onChange={() => {}}/></div><p>Immersive toolbar sample — brand stays hidden here.</p></section>
+    <div className="workspace-host" style={{ height: 400, width: 48 + sidebar + list + 400, border: "1px solid var(--hair)" }}>
+      <WorkspaceSwitcher workspace={hot ? "hot" : "rss"} captureBusy={busy} onChange={() => workspaceCalls++}/>
+      <div className="workspace-panels" style={{ display: "grid", gridTemplateColumns: `${sidebar}px ${list}px 400px` }}>
+        <aside className={hot ? "hot-sidebar" : "sidebar"} style={{ gridRow: 1 }}>
+          <div className="titlebar" data-tauri-drag-region><span style={{ letterSpacing: 6, color: "#e87055" }}>●●●</span></div>
+          <div className="sidebar-search">Search articles</div>
+          <div className="sb-section-title">LIBRARY · SYNTHETIC</div>
+        </aside>
+        <section className="list"><div className="list-header" data-tauri-drag-region>
+          <ArticleListControls sortOldest={false} unreadOnly={false} onToggleSort={() => sortCalls++} onToggleUnreadOnly={() => filterCalls++} onMarkAll={() => markCalls++}/>
+          <h1 className="list-title"><span className="list-title-text">微信公众号·科研精选</span><span className="list-title-meta"><span className="count">60+ articles</span></span></h1>
+        </div><div className="art"><div className="art-title">Synthetic article · only toolbar layout is under test</div></div></section>
+        <section className="reader"><div className="reader-toolbar"></div><p>Immersive toolbar sample — brand stays in the host chrome.</p></section>
+      </div>
     </div>
   </I18nextProvider>));
 }
@@ -48,14 +50,14 @@ for (const mode of ["light", "dark"]) for (const language of ["en", "zh", "ja"])
     render(sidebar, list, hot); await frame(); cases++;
     const label = `${mode}/${language}/${sidebar}/${list}/${hot ? "hot" : "rss"}`;
     const fail = (message: string) => failures.push(`${label}: ${message}`);
-    const pane = document.querySelector("aside")!.getBoundingClientRect();
-    const tabs = document.querySelector("aside .workspace-tabs")!;
-    const bounds = tabs.getBoundingClientRect();
-    if (bounds.left < pane.left + 80 || bounds.right > pane.right - 7 || bounds.top < pane.top || bounds.bottom > pane.top + 38) fail("workspace tabs overflow the title strip");
-    for (const button of tabs.querySelectorAll("button")) {
+    const rail = document.querySelector(".workspace-rail")!;
+    const railRect = rail.getBoundingClientRect();
+    const firstChoice = rail.querySelector<HTMLButtonElement>('button[aria-controls="workspace-rss-panel"]')!;
+    if (firstChoice.getBoundingClientRect().top < railRect.top + 38) fail("activity icons overlap the title strip");
+    for (const button of rail.querySelectorAll("button")) {
       const r = button.getBoundingClientRect();
-      if (r.right > bounds.right || r.left < bounds.left || r.top < bounds.top || r.bottom > bounds.bottom) fail("workspace button overflow");
-      if (!button.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2))) fail("workspace button blocked by drag region");
+      if (r.left < railRect.left || r.right > railRect.right) fail("activity button overflow");
+      if (!button.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2))) fail("activity button blocked by drag region");
     }
     const header = document.querySelector(".list-header")!.getBoundingClientRect();
     const title = document.querySelector(".list-title")!.getBoundingClientRect();
@@ -67,16 +69,16 @@ for (const mode of ["light", "dark"]) for (const language of ["en", "zh", "ja"])
       previousRight = r.right;
       if (!button.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2))) fail("list button not clickable");
     }
-    if (getComputedStyle(document.querySelector(".reader-toolbar .workspace-brand")!).display !== "none") fail("immersive toolbar contains duplicate brand");
+    if (document.querySelector(".reader-toolbar .workspace-title-brand")) fail("immersive toolbar contains duplicate brand");
   }
 }
 document.documentElement.dataset.mode = new URLSearchParams(location.search).get("dark") ? "dark" : "light";
 await i18n.changeLanguage("en"); render(200, 322, false); await frame();
 for (const button of document.querySelectorAll<HTMLButtonElement>(".list-meta button")) button.click();
-document.querySelectorAll<HTMLButtonElement>("aside .workspace-tabs button")[1].click();
+document.querySelector<HTMLButtonElement>('button[aria-controls="workspace-hotboard-panel"]')!.click();
 if ([sortCalls, filterCalls, markCalls, workspaceCalls].some(count => count !== 1)) failures.push("action callback wiring failed");
 render(200, 322, false, true); await frame();
-for (const button of document.querySelectorAll<HTMLButtonElement>("aside .workspace-tabs button")) button.click();
+for (const button of document.querySelectorAll<HTMLButtonElement>(".workspace-rail button")) button.click();
 if (workspaceCalls !== 1) failures.push("capture-busy switch did not remain disabled");
 render(200, 322, false); await frame();
 document.getElementById("results")!.textContent = JSON.stringify({ passed: failures.length === 0, cases, syntheticActionChecks: 5, failures }, null, 2);

@@ -9,11 +9,11 @@ import { useUi, PANEL_BOUNDS } from "../store";
 import { usePlayer } from "../player";
 import { useTranslationJobs } from "../translation";
 import { useArticleActions } from "../hooks/articleActions";
-import { capturedImageSources, renderMarkdown } from "../lib/markdown";
+import { renderMarkdown } from "../lib/markdown";
 import { downloadBlob, imageFilename } from "../lib/download";
 import { imageDataUrl } from "../lib/imageBytes";
 import { loadReaderViewPreference, resolveReaderViewMode, saveReaderViewPreference, type ReaderViewMode } from "../lib/readerViewMode";
-import { DEFAULT_FORMAT_LANGUAGE, isCurrentCapture, markdownCacheAction, readerTabForArticle, settleAiFormatJob, type AiFormatJob, type AiFormatLanguage, type AiFormatSource } from "../lib/aiFormatted";
+import { DEFAULT_FORMAT_LANGUAGE, isCurrentCapture, markdownCacheAction, markdownLookupState, readerTabForArticle, settleAiFormatJob, type AiFormatJob, type AiFormatLanguage, type AiFormatSource } from "../lib/aiFormatted";
 import { errorText } from "../lib/errors";
 import { enqueuePageView, nextPageViewRequestId } from "../lib/pageViewQueue";
 import { applyPageViewStatus, createPageViewState, dismissPageViewNotice, isPageViewStatusEvent, markPageViewCreated, markPageViewError, markPageViewWaiting, pageViewBanner, pageViewExternalUrl, pageViewForArticle, safePageViewUrl, startPageViewWait, type PageViewAction, type PageViewState } from "../lib/pageViewState";
@@ -38,7 +38,6 @@ import Lightbox from "./Lightbox";
 import "./reader-web-controls.css";
 
 interface Props {
-  workspaceSwitch?: React.ReactNode;
   onToast: (msg: string) => void;
   /** Keep RSS state mounted while suspending its native page and new actions. */
   active?: boolean;
@@ -194,7 +193,7 @@ function makeLinkClickHandler(sourceUrl: string | null) {
   };
 }
 
-export default function Reader({ onToast, active = true, onCaptureBusyChange, workspaceSwitch }: Props) {
+export default function Reader({ onToast, active = true, onCaptureBusyChange }: Props) {
   const activeRef = useRef(active);
   activeRef.current = active;
   const captureBusyRef = useRef(false);
@@ -345,19 +344,18 @@ export default function Reader({ onToast, active = true, onCaptureBusyChange, wo
     structuredQuery.data?.articleId === id && structuredQuery.data.cleaned
       ? structuredQuery.data
       : null;
-  const structuredSource = structuredDoc?.markdown ?? "";
-  // Block Markdown from the stored snapshot still goes through the app's
-  // allowlist sanitizer, and its images stay references until the backend has
-  // verified each one against that same snapshot.
-  const structuredImages = useMemo(() => capturedImageSources(structuredSource), [structuredSource]);
-  const structuredMarkup = useMemo(
-    () => (structuredSource ? renderMarkdown(structuredSource, structuredImages) : ""),
-    [structuredSource, structuredImages],
-  );
-  const usingStructured = Boolean(structuredMarkup) && !showExtracted;
-  const structuredVisible = usingStructured && !showTranslation;
   const formatJob = id != null ? formatJobs[id] ?? null : null;
-  const formatCacheAction = markdownCacheAction(formattedQuery.status, formattedQuery.isFetching, Boolean(formattedDraft), formatJob?.forceRefresh);
+  // Structured cleaning is local Markdown for the existing tab, never a
+  // substitute for the RSS original. Wait for both lookups before spending AI.
+  const localMarkdown = markdownLookupState(
+    formattedQuery.status,
+    formattedQuery.isFetching,
+    Boolean(formattedDraft),
+    structuredQuery.status,
+    structuredQuery.isFetching,
+    Boolean(structuredDoc?.markdown?.trim()),
+  );
+  const formatCacheAction = markdownCacheAction(localMarkdown.status, localMarkdown.fetching, localMarkdown.hasLocal, formatJob?.forceRefresh);
   const formatBusy = formatJob?.phase === "opening" || formatJob?.phase === "capturing" || formatJob?.phase === "formatting";
 
   // Feed list, so the article's source feed can be checked for its per-feed
@@ -848,32 +846,6 @@ export default function Reader({ onToast, active = true, onCaptureBusyChange, wo
     };
   }, [readerTab, a?.id, a?.url, showExtracted, a?.extractedHtml, showTranslation, a?.translatedHtml]);
 
-  // A structured image arrives as a reference, never as a live remote request:
-  // the backend re-checks the URL against the stored snapshot, walks Referer
-  // fallbacks and validates the bytes before they reach the webview.
-  useEffect(() => {
-    const el = bodyRef.current;
-    const captureId = structuredVisible ? structuredDoc?.captureId : undefined;
-    if (!el || !captureId || id == null) return;
-    let alive = true;
-    const queue = Array.from(el.querySelectorAll<HTMLImageElement>("img[data-captured-src]"));
-    void (async () => {
-      while (alive && queue.length) {
-        const img = queue.shift()!;
-        const src = img.dataset.capturedSrc!;
-        try {
-          const bytes = await api.fetchCapturedImage(id, captureId, src);
-          if (alive) img.src = imageDataUrl(src, bytes);
-        } catch {
-          if (alive) img.style.display = "none";
-        }
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, [id, structuredVisible, structuredDoc?.captureId, structuredMarkup]);
-
   // Same proactive proxy for the reader hero. These hosts need a Referer that
   // only the Rust fetch path can provide; waiting for `onError` leaves a broken
   // image visible in WKWebView on some builds.
@@ -956,11 +928,9 @@ export default function Reader({ onToast, active = true, onCaptureBusyChange, wo
 
   const hasExtracted = !!a?.extractedHtml;
   const canTranslate = !!(a?.extractedHtml || a?.contentHtml);
-  // An article an agent has already cleaned reads from its stored structured
-  // document, so opening it needs no capture or extraction. The full-text toggle
-  // still switches to the raw extraction when the user wants to compare.
-  const baseBody =
-    (usingStructured ? structuredMarkup : showExtracted ? a?.extractedHtml || a?.contentHtml : a?.contentHtml) || "";
+  // RSS original is the archive: feed HTML or a user-requested extraction.
+  // Structured cleaning never rewrites this tab.
+  const baseBody = (showExtracted ? a?.extractedHtml || a?.contentHtml : a?.contentHtml) || "";
   const jobForTarget = job && job.lang === targetLang ? job : undefined;
   const translating = jobForTarget?.status === "translating";
   const cachedValid = !!a?.translatedHtml && a.translatedLang === targetLang;
@@ -1187,7 +1157,7 @@ export default function Reader({ onToast, active = true, onCaptureBusyChange, wo
     };
     return (
       <div className="reader" role="main">
-        {(isMac || (focusMode && workspaceSwitch)) && <div className="reader-toolbar" data-tauri-drag-region>{focusMode && workspaceSwitch}</div>}
+        {isMac && <div className="reader-toolbar" data-tauri-drag-region />}
         <BatchExportPanel/>
         <div className="empty" style={{ flex: 1 }}>
           <div className="glyph">
@@ -1209,7 +1179,7 @@ export default function Reader({ onToast, active = true, onCaptureBusyChange, wo
   if (!a) {
     return (
       <div className="reader" role="main">
-        {(isMac || (focusMode && workspaceSwitch)) && <div className="reader-toolbar" data-tauri-drag-region>{focusMode && workspaceSwitch}</div>}
+        {isMac && <div className="reader-toolbar" data-tauri-drag-region />}
         <BatchExportPanel/>
         {article.isError ? (
           <div className="empty" style={{ flex: 1 }}>
@@ -1273,7 +1243,6 @@ export default function Reader({ onToast, active = true, onCaptureBusyChange, wo
         className={`reader-toolbar ${scrolled ? "scrolled" : ""}`}
         {...(isMac && { "data-tauri-drag-region": true })}
       >
-        {focusMode && workspaceSwitch}
         <button
           className={`tb-btn ${a.isStarred ? "on" : ""}`}
           onClick={() => actions.setStarred(a.id, !a.isStarred)}
@@ -1405,7 +1374,7 @@ export default function Reader({ onToast, active = true, onCaptureBusyChange, wo
       </div>
 
       <BatchExportPanel/>
-      {exportOpen && <ArticleExportPanel key={`${a.id}:${readerTab}`} articleId={a.id} source={readerTab === "reader" ? "reading" : readerTab} requestId={pageViewControllerRef.current?.articleId === a.id ? pageViewControllerRef.current.requestId : null} captureId={formattedDraft?.articleId === a.id ? formattedDraft.captureId : null} webReady={!!currentPageView?.created && !currentPageView.loading && !currentPageView.error} onClose={() => setExportOpen(false)} onToast={onToast}/>}
+      {exportOpen && <ArticleExportPanel key={`${a.id}:${readerTab}`} articleId={a.id} source={readerTab === "reader" ? "reading" : readerTab} requestId={pageViewControllerRef.current?.articleId === a.id ? pageViewControllerRef.current.requestId : null} captureId={(formattedDraft?.articleId === a.id ? formattedDraft.captureId : null) ?? structuredDoc?.captureId ?? null} webReady={!!currentPageView?.created && !currentPageView.loading && !currentPageView.error} onClose={() => setExportOpen(false)} onToast={onToast}/>}
 
       <ReaderViewOutlet
         key={readerViewKey(a.id, readerTab)}
@@ -1418,8 +1387,9 @@ export default function Reader({ onToast, active = true, onCaptureBusyChange, wo
             articleTitle={a.title}
             hasUrl={Boolean(a.url)}
             draft={formattedDraft}
-            loading={formattedQuery.isLoading}
-            loadError={formattedQuery.isError ? errorText(formattedQuery.error) : null}
+            structured={structuredDoc}
+            loading={!formattedDraft && !structuredDoc?.markdown && (formattedQuery.isLoading || structuredQuery.isLoading)}
+            loadError={formattedQuery.isError && !structuredDoc?.markdown ? errorText(formattedQuery.error) : null}
             job={formatJob}
             language={formatLanguage}
             onLanguageChange={setFormatLanguage}
@@ -1679,29 +1649,6 @@ export default function Reader({ onToast, active = true, onCaptureBusyChange, wo
                     ` ${jobForTarget.done}/${jobForTarget.total}`}
                 </span>
               )}
-            </div>
-          )}
-
-          {/* Where the structured text came from, so a feed-only summary is
-              never mistaken for the full article. */}
-          {structuredVisible && structuredDoc && (
-            <div className="reader-structured" role="note">
-              <Icon name="sparkle" size={12} />
-              <span>
-                {t(`reader.structuredSource.${structuredDoc.sourceKind}`, {
-                  defaultValue: t("reader.structuredSource.unknown"),
-                })}
-                {" · "}
-                {t("reader.structuredStats", {
-                  words: structuredDoc.words ?? 0,
-                  images: structuredDoc.images ?? 0,
-                })}
-              </span>
-              {(structuredDoc.truncated ? [t("reader.structuredTruncated")] : [])
-                .concat(structuredDoc.warnings ?? [])
-                .map((warning) => (
-                  <small key={warning}>{warning}</small>
-                ))}
             </div>
           )}
 

@@ -7,6 +7,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import * as api from "./api";
+import { applyUiScale } from "./lib/uiScale";
 import { useUi, READER_FONTS, resolveMode, systemPrefersDark } from "./store";
 import type { Palette, ResolvedMode } from "./store";
 import { useArticleActions } from "./hooks/articleActions";
@@ -53,7 +54,7 @@ function hexRgb(hex: string): [number, number, number] {
 // does not replace the user's current feed or article selection.
 let startupViewApplied = false;
 
-export default function App({ active = true, onCaptureBusyChange, onRequestActivate, workspaceSwitch }: { active?: boolean; onCaptureBusyChange?: (busy: boolean) => void; onRequestActivate?: () => void; workspaceSwitch?: React.ReactNode }) {
+export default function App({ active = true, onCaptureBusyChange, onRequestActivate }: { active?: boolean; onCaptureBusyChange?: (busy: boolean) => void; onRequestActivate?: () => void }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
 
@@ -61,6 +62,7 @@ export default function App({ active = true, onCaptureBusyChange, onRequestActiv
   const mode = useUi((s) => s.mode);
   const webDarkMode = useUi((s) => s.prefs.webDarkMode);
   const density = useUi((s) => s.density);
+  const uiScale = useUi((s) => s.uiScale);
   // OS colour scheme, tracked live so `mode: "system"` follows it without a
   // restart. Only matters while `mode === "system"`, but the listener is cheap
   // and always mounted so a switch to System takes effect immediately.
@@ -130,12 +132,11 @@ export default function App({ active = true, onCaptureBusyChange, onRequestActiv
   // reader watches this flag and tears the view down while a modal is up.
   const setModalOpen = useUi((s) => s.setModalOpen);
   useEffect(() => {
-    setModalOpen(active && (cpOpen || settings.open || addFeed || explore || newFolder));
+    setModalOpen(settings.open || (active && (cpOpen || addFeed || explore || newFolder)));
   }, [active, cpOpen, settings.open, addFeed, explore, newFolder, setModalOpen]);
   useEffect(() => {
     if (active) return;
     setCpOpen(false);
-    setSettings({ open: false });
     setAddFeed(false);
     setExplore(false);
     setNewFolder(false);
@@ -147,6 +148,7 @@ export default function App({ active = true, onCaptureBusyChange, onRequestActiv
     root.dataset.palette = palette;
     root.dataset.mode = effectiveMode;
     root.dataset.density = density;
+    applyUiScale(uiScale);
     // Keep the backend's pre-paint copy on the *resolved* mode, so an OS scheme
     // change while running (mode: "system") is reflected on the next launch too.
     api.setSetting("mode", effectiveMode).catch(() => {});
@@ -158,15 +160,22 @@ export default function App({ active = true, onCaptureBusyChange, onRequestActiv
     // webview is opaque, so setBackgroundColor here mainly covers their own
     // resize/overscroll; harmless on macOS where it's the NSWindow colour.)
     const backing = BACKING[palette][effectiveMode];
-    getCurrentWindow().setBackgroundColor(backing).catch(() => {});
-    getCurrentWebview().setBackgroundColor(backing).catch(() => {});
+    // getCurrentWindow() reads Tauri internals synchronously. In a Vite
+    // browser preview those internals are missing, and React 19 treats the
+    // thrown effect as a render crash.
+    try {
+      getCurrentWindow().setBackgroundColor(backing).catch(() => {});
+      getCurrentWebview().setBackgroundColor(backing).catch(() => {});
+    } catch {
+      /* browser preview */
+    }
     // macOS only: the calls above can't reach `underPageBackgroundColor`, the
     // overscroll/resize *gutter* that otherwise stays stuck on the light config
     // colour and flashes white at a fast-resize edge. set_native_backing pins it
     // (plus drawsBackground + NSWindow) in one shot; a no-op off macOS.
     const [r, g, b] = hexRgb(backing);
     invoke("set_native_backing", { r, g, b }).catch(() => {});
-  }, [palette, effectiveMode, density]);
+  }, [palette, effectiveMode, density, uiScale]);
 
   // ── dismiss the boot splash once the app shell has mounted ──
   useEffect(() => {
@@ -271,7 +280,10 @@ export default function App({ active = true, onCaptureBusyChange, onRequestActiv
   // An agent-requested cleaning job finished: whatever is open re-reads its
   // stored structured document.
   useEffect(() => {
-    const un = listen("articles-cleaned", () => void qc.invalidateQueries({ queryKey: ["structured"] }));
+    const un = listen("articles-cleaned", () => {
+      void qc.invalidateQueries({ queryKey: ["structured"] });
+      void qc.invalidateQueries({ queryKey: ["structured-documents"] });
+    });
     return () => { void un.then((f) => f()); };
   }, [qc]);
   useEffect(() => {
@@ -285,13 +297,17 @@ export default function App({ active = true, onCaptureBusyChange, onRequestActiv
     };
   }, [qc]);
 
-  // ── "Settings…" from the menu-bar tray ──
+  // Settings live on the host rail, so they stay available outside RSS.
   useEffect(() => {
-    const un = listen("tray-open-settings", () => { onRequestActivate?.(); setSettings({ open: true }); });
+    const open = () => setSettings({ open: true });
+    const onHost = () => open();
+    window.addEventListener("papr-open-settings", onHost);
+    const un = listen("tray-open-settings", open);
     return () => {
-      un.then((f) => f());
+      window.removeEventListener("papr-open-settings", onHost);
+      void un.then((f) => f());
     };
-  }, [onRequestActivate]);
+  }, []);
 
   // ── papr://subscribe deep links from the browser extension (F6) ──
   useEffect(() => {
@@ -408,11 +424,24 @@ export default function App({ active = true, onCaptureBusyChange, onRequestActiv
 
   // ── global keyboard shortcuts (design app.jsx parity) ──
   useEffect(() => {
-    if (!active) return;
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName;
       const inField = tag === "INPUT" || tag === "TEXTAREA";
       const mod = e.metaKey || e.ctrlKey;
+      if (mod && e.key === ",") {
+        e.preventDefault();
+        const settingsOpen = !!document.querySelector(".settings-backdrop");
+        if (
+          !settingsOpen &&
+          document.querySelector(
+            ".cp-backdrop, .modal-backdrop, .tag-picker, .hl-popover",
+          )
+        )
+          return;
+        setSettings((s) => ({ open: !s.open }));
+        return;
+      }
+      if (!active) return;
 
       // The modifier-key shortcuts (⌘K / ⌘, / ⌘R) are *application-global* —
       // they must fire regardless of where focus sits. The INPUT/TEXTAREA
@@ -440,19 +469,6 @@ export default function App({ active = true, onCaptureBusyChange, onRequestActiv
         )
           return;
         setCpOpen((o) => !o);
-        return;
-      }
-      if (mod && e.key === ",") {
-        e.preventDefault();
-        const settingsOpen = !!document.querySelector(".settings-backdrop");
-        if (
-          !settingsOpen &&
-          document.querySelector(
-            ".cp-backdrop, .modal-backdrop, .tag-picker, .hl-popover",
-          )
-        )
-          return;
-        setSettings((s) => ({ open: !s.open }));
         return;
       }
       if (mod && e.key.toLowerCase() === "r") {
@@ -553,17 +569,15 @@ export default function App({ active = true, onCaptureBusyChange, onRequestActiv
       <div className="app-shell">
         <div className={`window ${focusMode ? "focus" : ""}`}>
           <Sidebar
-            workspaceSwitch={workspaceSwitch}
             onAddFeed={() => setAddFeed(true)}
             onExplore={() => setExplore(true)}
-            onOpenSettings={openSettings}
             onSearchClick={() => setCpOpen(true)}
             onRefresh={doRefresh}
             refreshing={refreshing}
             onToast={showToast}
           />
           <ArticleList onToast={showToast} />
-          <Reader onToast={showToast} active={active} onCaptureBusyChange={onCaptureBusyChange} workspaceSwitch={workspaceSwitch}/>
+          <Reader onToast={showToast} active={active} onCaptureBusyChange={onCaptureBusyChange}/>
           {/* Pane resize handles. Hidden in focus mode (the sidebar + list are
               hidden then, collapsing the grid to a single reader column). They
               sit at the column boundaries via the `left` offset below. */}
@@ -571,6 +585,7 @@ export default function App({ active = true, onCaptureBusyChange, onRequestActiv
             <>
               <div
                 className="resize-handle-slot"
+                data-pane="sidebar"
                 style={{ left: "var(--col-sidebar)" }}
               >
                 <ResizeHandle
@@ -609,13 +624,14 @@ export default function App({ active = true, onCaptureBusyChange, onRequestActiv
         onNavigateArticle={navigateArticle}
       />
 
-      {active && settings.open && (
+      {settings.open && (
         <SettingsDialog
           onClose={() => setSettings({ open: false })}
           onToast={showToast}
           initialSection={settings.section}
           onAddFeed={() => {
             setSettings({ open: false });
+            onRequestActivate?.();
             setAddFeed(true);
           }}
         />

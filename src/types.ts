@@ -15,8 +15,26 @@ export interface PageCapture {
 
 /** Independently persisted Markdown. Failed generations never replace this. */
 /** An article's stored structured cleaning, produced by an agent-requested
- *  `article_clean` run. Present means the reader can show structured content
- *  immediately, with no per-article capture or extraction. */
+ *  `article_clean` run. Present means the Markdown tab can show that document
+ *  immediately. The RSS original is never replaced. */
+/** One row in the on-device cleaned library (folder tree + reader). */
+export interface StructuredListItem {
+  articleId: number;
+  feedId: number;
+  feedTitle: string;
+  folderId: number | null;
+  folderName: string | null;
+  title: string;
+  url: string | null;
+  publishedAt: string | null;
+  cleanedAt: string;
+  sourceKind: string;
+  blocks: number;
+  words: number;
+  images: number;
+  staleSchema: boolean;
+}
+
 export interface StructuredDocument {
   articleId: number;
   cleaned: boolean;

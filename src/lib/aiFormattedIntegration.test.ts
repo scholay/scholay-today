@@ -53,7 +53,8 @@ describe("AI reader integration boundaries", () => {
   });
   it("guards both entry and capture with the local cache decision", () => {
     const reader = read("components/Reader.tsx");
-    expect(reader).toContain("markdownCacheAction(formattedQuery.status, formattedQuery.isFetching, Boolean(formattedDraft), formatJob?.forceRefresh)");
+    expect(reader).toContain("markdownCacheAction(localMarkdown.status, localMarkdown.fetching, localMarkdown.hasLocal, formatJob?.forceRefresh)");
+    expect(reader).toContain("markdownLookupState(");
     const open = reader.slice(reader.indexOf("const openFormatted ="), reader.indexOf("const reformat ="));
     expect(open).toContain('if (articleUrl && !formatJob && formatCacheAction === "generate")');
     const automatic = reader.slice(reader.indexOf("// Capture only after"), reader.indexOf("const openFormatted ="));
@@ -123,15 +124,15 @@ describe("AI reader integration boundaries", () => {
     const component = read("components/AIFormatted.tsx");
     expect(component).toContain('import { capturedImageSources, renderMarkdown } from "../lib/markdown"');
     expect(component).toContain("renderMarkdown(prepareObsidianMarkdown(parts.body), images)");
-    expect(component).toContain("fetchCapturedImage(articleId, draft.captureId, src)");
+    expect(component).toContain("fetchCapturedImage(articleId, captureId, src)");
     expect(component.match(/dangerouslySetInnerHTML/g)).toHaveLength(1);
     expect(component).toContain("useMemo(() => ({ __html: html }), [html])");
     expect(component).toContain("dangerouslySetInnerHTML={previewMarkup}");
     expect(component).toContain("<pre>{parts.frontmatter}</pre>");
     expect(component).toContain("<pre>{draft.sourceText}</pre>");
-    expect(component).toContain("value={draft.markdown}");
+    expect(component).toContain("value={markdown}");
     expect(component).toContain("value={capturedOnly.sourceText}");
-    expect(component).toContain("capturedSourceForPreview(Boolean(draft), job)");
+    expect(component).toContain("capturedSourceForPreview(hasDocument, job)");
     expect(component.indexOf("</> : capturedOnly ?")).toBeLessThan(component.indexOf('t("aiFormatted.emptyHint")'));
     expect(component).toContain('"text/markdown;charset=utf-8"');
   });

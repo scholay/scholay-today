@@ -24,7 +24,7 @@ beforeEach(() => {
   host = document.createElement("div"); document.body.append(host); root = createRoot(host);
 });
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.unstubAllGlobals(); vi.clearAllMocks(); });
-const render = () => act(async () => root.render(createElement(LabelBoard, { active: true, workspaceSwitch: null })));
+const render = () => act(async () => root.render(createElement(LabelBoard, { active: true })));
 const waitFor = async (check: () => void) => {
   // Flush each IndexedDB task and React commit separately; an outer act would
   // batch the very state updates whose rendered result the assertion awaits.

@@ -44,6 +44,28 @@ export function markdownCacheAction(status: "pending" | "error" | "success", fet
   return status === "error" ? "error" : "generate";
 }
 
+export type MarkdownLookupStatus = "pending" | "error" | "success";
+
+/** Combine the AI-draft and structured-cleaning lookups. Structured cleaning
+ *  is local Markdown, not a fourth tab: wait for both, then reuse either. */
+export function markdownLookupState(
+  formattedStatus: MarkdownLookupStatus,
+  formattedFetching: boolean,
+  hasAiDraft: boolean,
+  structuredStatus: MarkdownLookupStatus,
+  structuredFetching: boolean,
+  hasStructured: boolean,
+): { status: MarkdownLookupStatus; fetching: boolean; hasLocal: boolean } {
+  const hasLocal = hasAiDraft || hasStructured;
+  const fetching =
+    formattedStatus === "pending" ||
+    formattedFetching ||
+    (!hasAiDraft && (structuredStatus === "pending" || structuredFetching));
+  if (fetching) return { status: "pending", fetching: true, hasLocal };
+  if (formattedStatus === "error" && !hasLocal) return { status: "error", fetching: false, hasLocal };
+  return { status: "success", fetching: false, hasLocal };
+}
+
 /** Opening the source page is part of the same user-requested pipeline as its
  *  capture and formatting. A terminal failure is the only non-busy job. */
 export function isAiFormatBusy(job: AiFormatJob | null | undefined): boolean {

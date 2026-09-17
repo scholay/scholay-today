@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
-import WorkspaceSwitcher from "../src/components/WorkspaceSwitcher";
 import BoardResizeHandles from "../src/components/BoardResizeHandles";
 import { useBoardPanes } from "../src/hooks/useBoardPanes";
 import LabelTimeline from "../src/labels/LabelTimeline";
@@ -28,7 +27,7 @@ function Fixture() {
   const shown = (selection === "latest" ? editions[0] : editions.find(item => String(item.start) === selection))!.captures;
   return <><div style={{ height: 32, font: "12px var(--ui)", padding: 7, color: "var(--muted)" }}>布局预览 · 演示数据（不写入应用） <button onClick={() => { document.documentElement.dataset.mode = dark ? "light" : "dark"; setDark(!dark); }}>切换明暗</button></div>
     <section ref={panes.hostRef} style={{ ...panes.style, height: "calc(100vh - 32px)" }} className="hot-workspace is-source label-workspace">
-      <aside className="hot-sidebar"><div className="workspace-sidebar-heading"><WorkspaceSwitcher workspace="labels" captureBusy={false} onChange={() => {}}/></div><div className="label-sidebar-heading">标签与趋势</div><nav className="hot-source-nav"><button>全部平台</button><button className="is-active">抖音</button><button>哔哩哔哩</button><button>知乎</button></nav></aside>
+      <aside className="hot-sidebar"><div className="label-sidebar-heading">标签与趋势</div><nav className="hot-source-nav"><button>全部平台</button><button className="is-active">抖音</button><button>哔哩哔哩</button><button>知乎</button></nav></aside>
       <header className="hot-workspace-toolbar"><div className="hot-breadcrumb"><span>标签</span><strong>抖音</strong></div></header>
       <LabelTimeline editions={editions} selection={selection} loading={false} loadingMore={false} hasMore={false} error="" onSelect={setSelection} onMore={() => {}}/>
       <section className="hot-detail"><div className="label-native-detail"><LabelInsights captures={shown} loading={false} onCopy={() => {}} onOriginal={() => {}}/></div></section>

@@ -23,6 +23,7 @@ import type {
   RulePreview,
   SmartCounts,
   StructuredDocument,
+  StructuredListItem,
   Tag,
   TranslateEvent,
   WechatConnectorStatus,
@@ -42,6 +43,8 @@ export const deleteFolder = (id: number) =>
  *  this never captures or fetches anything. */
 export const articleStructuredDocument = (articleId: number) =>
   invoke<StructuredDocument>("article_structured_document", { articleId });
+export const listStructuredDocuments = () =>
+  invoke<StructuredListItem[]>("list_structured_documents");
 
 // ── images ──
 export const fetchCapturedImage = (articleId: number, captureId: string, url: string) =>
@@ -219,6 +222,8 @@ export interface StorageStats {
   dbBytes: number;
   articleCount: number;
   feedCount: number;
+  folderCount?: number;
+  cleanedCount?: number;
 }
 export const storageStats = () => invoke<StorageStats>("storage_stats");
 export const cleanupArticles = (days: number) =>

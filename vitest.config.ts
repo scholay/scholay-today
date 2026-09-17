@@ -11,6 +11,8 @@ export default defineConfig({
       "src/lib/**/*.test.ts",
       "src/hot/**/*.test.ts",
       "src/labels/**/*.test.ts",
+      "src/calendar/**/*.test.ts",
+      "src/library/**/*.test.ts",
     ],
     environment: "node",
   },

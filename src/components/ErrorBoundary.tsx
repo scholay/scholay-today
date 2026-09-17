@@ -9,17 +9,19 @@ interface Props {
 }
 interface State {
   crashed: boolean;
+  message: string;
 }
 
 export class ErrorBoundary extends Component<Props, State> {
-  state: State = { crashed: false };
+  state: State = { crashed: false, message: "" };
 
-  static getDerivedStateFromError(): State {
-    return { crashed: true };
+  static getDerivedStateFromError(error: unknown): State {
+    const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+    return { crashed: true, message };
   }
 
-  componentDidCatch(error: unknown) {
-    console.error("Unhandled render error:", error);
+  componentDidCatch(error: unknown, info: { componentStack?: string }) {
+    console.error("Unhandled render error:", error, info.componentStack);
     // A crash during initial mount leaves the boot splash (z-index 9999)
     // covering everything — drop it so the fallback below is visible.
     document.getElementById("app-loading")?.remove();
@@ -51,6 +53,11 @@ export class ErrorBoundary extends Component<Props, State> {
           {i18n.t("crash.title")}
         </div>
         <div style={{ fontSize: 13, opacity: 0.7 }}>{i18n.t("crash.body")}</div>
+        {import.meta.env.DEV && this.state.message && (
+          <pre style={{ maxWidth: 640, margin: 0, padding: 12, fontSize: 12, lineHeight: 1.45, textAlign: "left", whiteSpace: "pre-wrap", overflow: "auto", background: "rgba(255,255,255,0.06)", borderRadius: 8 }}>
+            {this.state.message}
+          </pre>
+        )}
         <button
           onClick={() => location.reload()}
           style={{

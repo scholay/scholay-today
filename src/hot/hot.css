@@ -11,6 +11,10 @@
 :root[data-platform="other"] .hot-sidebar { padding-top: 24px; }
 .hot-brand { display: flex; align-items: center; gap: 9px; height: 30px; flex-shrink: 0; margin: 19px 12px 10px; font: 600 17px var(--serif); letter-spacing: -.01em; }
 .hot-brand img { width: 22px; height: 22px; }
+.hot-section-switch { display: flex; gap: 2px; margin: 0 10px 8px; padding: 2px; border: 1px solid var(--hair); border-radius: 8px; background: var(--paper); }
+.hot-section-switch button { flex: 1; min-height: 28px; display: inline-flex; align-items: center; justify-content: center; gap: 4px; border-radius: 5px; color: var(--muted); font: 500 12px/1.5 var(--ui); }
+.hot-section-switch button:hover { background: var(--hover); color: var(--ink); }
+.hot-section-switch button[aria-pressed="true"] { color: var(--accent); background: var(--accent-soft); }
 .hot-main-nav { display: flex; flex-direction: column; gap: 2px; padding: 6px 8px 8px; }
 .hot-main-nav button, .hot-source-nav button { display: flex; align-items: center; gap: 9px; width: 100%; height: 30px; padding: 0 10px; text-align: left; border-radius: 7px; color: var(--ink-2); }
 .hot-main-nav button > span { margin-left: auto; color: var(--muted); font-size: 11px; }
@@ -25,7 +29,7 @@
 .hot-source-nav small { font-size: 10px; color: var(--muted); flex-shrink: 0; }
 .hot-nav-empty { font-size: 11.5px; color: var(--muted); padding: 10px; }
 .hot-sidebar-foot { padding: 10px 18px; border-top: 1px solid var(--hair); color: var(--muted-2); font-size: 10.5px; flex-shrink: 0; }
-.hot-workspace-toolbar { grid-column: 2 / -1; grid-row: 1; display: flex; align-items: center; gap: 8px; min-width: 0; padding: 4px 18px; border-bottom: 1px solid var(--hair); }
+.hot-workspace-toolbar { grid-column: 2 / -1; grid-row: 1; display: flex; align-items: center; justify-content: flex-start; gap: 8px; min-width: 0; height: 38px; box-sizing: border-box; padding: 0 18px; border-bottom: 1px solid var(--hair); }
 .hot-breadcrumb { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 11.5px; color: var(--muted); }
 .hot-breadcrumb button { padding: 0; color: var(--muted); }
 .hot-breadcrumb strong { max-width: 180px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-weight: 500; color: var(--ink-2); }

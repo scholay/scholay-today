@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueries, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import Icon from "../components/Icon";
-import Brand from "../components/Brand";
 import BoardResizeHandles from "../components/BoardResizeHandles";
 import { useBoardPanes } from "../hooks/useBoardPanes";
 import { isMac } from "../lib/platform";
@@ -26,7 +25,7 @@ function SnapshotStatus({ source, snapshot, loading, error, onRefresh }: { sourc
   </div>;
 }
 
-export default function HotBoard({ active, workspaceSwitch }: { active: boolean; workspaceSwitch?: React.ReactNode }) {
+export default function HotBoard({ active }: { active: boolean }) {
   const qc = useQueryClient();
   const [ui, setUi] = useState<HotUiState>(() => {
     try { return parseHotUi(localStorage.getItem(HOT_UI_KEY)); } catch { return parseHotUi(null); }
@@ -98,7 +97,6 @@ export default function HotBoard({ active, workspaceSwitch }: { active: boolean;
   return <section ref={panes.hostRef} style={panes.style} className={`hot-workspace ${selectedSource ? "is-source" : "is-overview"}`} aria-label="独立热榜工作区">
     <aside className="hot-sidebar" aria-label="热榜来源">
       {isMac && <div className="titlebar" data-tauri-drag-region />}
-      {workspaceSwitch ? <div className="workspace-sidebar-heading">{workspaceSwitch}</div> : <Brand className="hot-brand"/>}
       <nav className="hot-main-nav">
         <button className={!selectedSource && !ui.favoritesOnly ? "is-active" : ""} onClick={() => { showOverview(); patchUi({ favoritesOnly: false }); }}><Icon name="grid" size={15}/>概览<span>{sources.length}</span></button>
         <button className={ui.favoritesOnly ? "is-active" : ""} onClick={() => { showOverview(); patchUi({ favoritesOnly: !ui.favoritesOnly }); }}><Icon name="star" size={15}/>关注<span>{ui.favorites.length}</span></button>

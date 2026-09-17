@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { cloneElement, isValidElement, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { getVersion } from "@tauri-apps/api/app";
 import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
@@ -106,7 +107,7 @@ export default function SettingsDialog({
     about: t("settings.sub.about"),
   };
 
-  return (
+  return createPortal(
     <div className="settings-backdrop" onClick={onClose}>
       <div
         className="settings-window"
@@ -176,7 +177,8 @@ export default function SettingsDialog({
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -563,6 +565,8 @@ function AppearanceSection() {
   const setMode = useUi((s) => s.setMode);
   const density = useUi((s) => s.density);
   const setDensity = useUi((s) => s.setDensity);
+  const uiScale = useUi((s) => s.uiScale);
+  const setUiScale = useUi((s) => s.setUiScale);
   const viewMode = useUi((s) => s.viewMode);
   const setViewMode = useUi((s) => s.setViewMode);
   const prefs = useUi((s) => s.prefs);
@@ -631,6 +635,21 @@ function AppearanceSection() {
               { value: "spacious", label: t("settings.appearance.densitySpacious") },
             ]}
             onChange={setDensity}
+          />
+        </Row>
+        <Row
+          label={t("settings.appearance.uiScale")}
+          desc={t("settings.appearance.uiScaleDesc")}
+        >
+          <Segmented
+            value={uiScale}
+            options={[
+              { value: "90", label: "90%" },
+              { value: "100", label: "100%" },
+              { value: "110", label: "110%" },
+              { value: "125", label: "125%" },
+            ]}
+            onChange={setUiScale}
           />
         </Row>
         <Row label={t("settings.appearance.listStyle")}>
@@ -1287,6 +1306,9 @@ function ShortcutsSection() {
         { desc: t("settings.shortcuts.refreshAll"), keys: [modKey, "R"] },
         { desc: t("settings.shortcuts.addFeed"), keys: ["A"] },
         { desc: t("settings.shortcuts.openSettings"), keys: [modKey, ","] },
+        { desc: t("settings.shortcuts.zoomIn"), keys: [modKey, "+"] },
+        { desc: t("settings.shortcuts.zoomOut"), keys: [modKey, "-"] },
+        { desc: t("settings.shortcuts.zoomReset"), keys: [modKey, "0"] },
       ],
     },
   ];
@@ -1603,7 +1625,7 @@ function DangerZone({ onToast }: { onToast: (m: string) => void }) {
             // accent picker / dark-shade picker.
             // "theme" is the pre-6-theme key; still cleared so a reset wipes it
             // for migrated installs. "palette"/"mode" are the current keys.
-            "palette", "mode", "theme", "accent", "darkShade", "density", "viewMode", "readerFont",
+            "palette", "mode", "theme", "accent", "darkShade", "density", "uiScale", "viewMode", "readerFont",
             "useSerif", "readerSize", "readerLeading", "readerWidth",
             "collapsedFolders",
           ].includes(k)

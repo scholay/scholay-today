@@ -19,7 +19,7 @@ type State = { message: string; loading?: boolean; success?: boolean };
 
 /** Platforms -> capture time -> grouped tags. Websites are authorization
  * surfaces only; history contains public ranking fields, never credentials. */
-export default function LabelBoard({ active, workspaceSwitch }: { active: boolean; workspaceSwitch: React.ReactNode }) {
+export default function LabelBoard({ active }: { active: boolean }) {
   const panes = useBoardPanes("labels", true, active);
   const [ui, setUi] = useState(() => parseLabelUi(read(LABEL_UI_KEY)));
   const [snapshots, setSnapshots] = useState(() => parseLabelCache(read(LABEL_CACHE_KEY)));
@@ -129,8 +129,7 @@ export default function LabelBoard({ active, workspaceSwitch }: { active: boolea
   return <section ref={panes.hostRef} style={panes.style} className="hot-workspace is-source label-workspace" aria-label="标签工作区">
     <div className="titlebar" data-tauri-drag-region />
     <aside className="hot-sidebar">
-      <div className="workspace-sidebar-heading">{workspaceSwitch}</div>
-      <div className="label-sidebar-heading"><Icon name="tag" size={15}/><strong>标签与趋势</strong></div>
+      <div className="label-sidebar-heading"><Icon name="tag" size={15}/><strong>平台</strong></div>
       <nav className="hot-source-nav" aria-label="标签平台">
         <button className={ui.sourceId === "all" ? "is-active" : ""} onClick={() => choose("all")}><Icon name="list" size={17}/><span>全部平台</span><small>{count}</small></button>
         <div className="hot-section-label">平台 · 统一数据视图</div>
@@ -139,7 +138,7 @@ export default function LabelBoard({ active, workspaceSwitch }: { active: boolea
       <div className="hot-sidebar-foot"><button className="label-text-button" onClick={() => authorize()}><Icon name="settings" size={13}/>平台授权管理</button><span>Cookie 保存在系统安全存储<br/>与 RSS、热榜数据分开</span></div>
     </aside>
     <header className="hot-workspace-toolbar">
-      <div className="hot-breadcrumb"><span>标签</span><Icon name="chevron-right" size={12}/><strong>{source?.name ?? "全部平台"}</strong></div>
+      <div className="hot-breadcrumb"><strong>{source?.name ?? "全部平台"}</strong></div>
       <span className="label-auth-state" role="status">{collecting ? "后台同步中" : source ? (states[source.id]?.message ?? (snapshots[source.id] ? "本地快照" : source.adapter ? "等待同步" : "结构化适配待完成")) : "按平台与榜单分别展示"}</span>
       <button className="label-login-button" onClick={() => authorize()}>授权管理</button>
       <button className="hot-icon-button" disabled={!active || !historyReady || collecting || !!authId || (source && !source.adapter)} onClick={() => setRefresh(value => value + 1)} aria-label="同步标签并保存快照" title="同步标签并保存快照"><Icon name="refresh" size={14}/></button>

@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { invoke } = vi.hoisted(() => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke, Channel: class {} }));
-import { articleStructuredDocument } from "../api";
+import { articleStructuredDocument, listStructuredDocuments } from "../api";
 import { libraryPermissions } from "./integrations";
 import { capturedImageSources, renderMarkdown } from "./markdown";
 
@@ -21,9 +21,14 @@ describe("structured cleaning IPC", () => {
       ["library_permissions", { enabled: true, writable: false, articles: true, articleClean: false }],
     ]);
   });
+  it("lists stored cleanings for the files workspace without recleaning", async () => {
+    invoke.mockResolvedValueOnce([{ articleId: 12, cleanedAt: "2026-09-01" }]);
+    await expect(listStructuredDocuments()).resolves.toEqual([{ articleId: 12, cleanedAt: "2026-09-01" }]);
+    expect(invoke.mock.calls).toEqual([["list_structured_documents"]]);
+  });
 });
 
-describe("structured reading body", () => {
+describe("structured Markdown body", () => {
   it("sanitizes the stored Markdown and keeps images as verified references", () => {
     const dom = new JSDOM();
     vi.stubGlobal("DOMParser", dom.window.DOMParser);
@@ -40,19 +45,22 @@ describe("structured reading body", () => {
     vi.unstubAllGlobals();
   });
 
-  it("wires the Reading tab to the stored document without adding a tab or a fetch", () => {
+  it("shows the stored document on the Markdown tab and leaves RSS original untouched", () => {
     const reader = read("components/Reader.tsx");
-    expect(reader).toContain('import { capturedImageSources, renderMarkdown } from "../lib/markdown"');
+    const formatted = read("components/AIFormatted.tsx");
     expect(reader).toContain('queryKey: ["structured", id]');
     expect(reader).toContain("api.articleStructuredDocument(id as number)");
-    expect(reader).toContain("renderMarkdown(structuredSource, structuredImages)");
-    expect(reader).toContain("const usingStructured = Boolean(structuredMarkup) && !showExtracted;");
-    expect(reader).toContain("api.fetchCapturedImage(id, captureId, src)");
-    // The provenance note sits above the shared body element; no new tab, and
-    // the reader never asks the app to clean anything.
-    expect(reader).toContain('className="reader-structured"');
-    expect(reader).toContain("t(`reader.structuredSource.${structuredDoc.sourceKind}`");
-    expect(reader.match(/<ReaderViewOutlet\b/g)).toHaveLength(1);
+    expect(reader).toContain("structured={structuredDoc}");
+    expect(reader).toContain("markdownLookupState(");
+    expect(reader).toContain("Boolean(structuredDoc?.markdown?.trim())");
+    expect(reader).toContain("const baseBody = (showExtracted ? a?.extractedHtml || a?.contentHtml : a?.contentHtml) || \"\";");
+    expect(reader).not.toContain("usingStructured");
+    expect(reader).not.toContain("structuredMarkup");
     expect(reader).not.toMatch(/article_clean|articleClean/);
+    expect(formatted).toContain("const markdown = draft?.markdown ?? structuredMarkdown;");
+    expect(formatted).toContain('className="reader-structured"');
+    expect(formatted).toContain("t(`reader.structuredSource.${structured.sourceKind}`");
+    expect(formatted).toContain("fetchCapturedImage(articleId, captureId, src)");
+    expect(reader.match(/<ReaderViewOutlet\b/g)).toHaveLength(1);
   });
 });

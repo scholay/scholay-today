@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { capturedSourceForPreview, DEFAULT_FORMAT_LANGUAGE, dismissAiFormatError, formattedMarkdownFilename, isAiFormatBusy, isAiFormatLanguage, isCurrentCapture, prepareObsidianMarkdown, readerTabForArticle, settleAiFormatJob, splitMarkdownFrontmatter, type AiFormatJob } from "./aiFormatted";
+import { capturedSourceForPreview, DEFAULT_FORMAT_LANGUAGE, dismissAiFormatError, formattedMarkdownFilename, isAiFormatBusy, isAiFormatLanguage, isCurrentCapture, markdownLookupState, prepareObsidianMarkdown, readerTabForArticle, settleAiFormatJob, splitMarkdownFrontmatter, type AiFormatJob } from "./aiFormatted";
 import { markdownCacheAction } from "./aiFormatted";
 
 describe("Markdown cache-first entry", () => {
@@ -20,6 +20,16 @@ describe("Markdown cache-first entry", () => {
     expect(markdownCacheAction("success", false, true, true)).toBe("generate");
     expect(markdownCacheAction("success", true, true, true)).toBe("generate");
     expect(markdownCacheAction("error", false, true, true)).toBe("generate");
+  });
+  it("treats a stored structured cleaning as local Markdown and waits for both lookups", () => {
+    expect(markdownLookupState("pending", true, false, "success", false, true)).toEqual({ status: "pending", fetching: true, hasLocal: true });
+    expect(markdownLookupState("success", false, false, "pending", true, false)).toEqual({ status: "pending", fetching: true, hasLocal: false });
+    expect(markdownLookupState("success", false, false, "success", false, true)).toEqual({ status: "success", fetching: false, hasLocal: true });
+    expect(markdownLookupState("success", false, true, "pending", true, false)).toEqual({ status: "success", fetching: false, hasLocal: true });
+    expect(markdownLookupState("error", false, false, "success", false, true)).toEqual({ status: "success", fetching: false, hasLocal: true });
+    expect(markdownLookupState("error", false, false, "error", false, false)).toEqual({ status: "error", fetching: false, hasLocal: false });
+    expect(markdownLookupState("success", false, false, "error", false, false)).toEqual({ status: "success", fetching: false, hasLocal: false });
+    expect(markdownCacheAction("success", false, true)).toBe("cached");
   });
 });
 

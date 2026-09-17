@@ -1,6 +1,6 @@
 import { fitPaneWidths, MIN_READER_PANE, type PaneWidthBounds, type PaneWidths } from "./paneGeometry";
 
-export type BoardWorkspace = "hotboard" | "labels";
+export type BoardWorkspace = "hotboard" | "labels" | "calendar";
 export interface BoardPanePreference { sidebarWidth: number; listWidth: number }
 export const BOARD_PANE_BOUNDS: PaneWidthBounds = { sidebar: { min: 200, max: 420 }, list: { min: 280, max: 560 } };
 export const boardPaneKey = (workspace: BoardWorkspace) => `scholay.${workspace}.panes.v1`;

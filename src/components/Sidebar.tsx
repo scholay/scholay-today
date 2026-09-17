@@ -9,18 +9,15 @@ import { isMac, modCombo } from "../lib/platform";
 import { tagColor, TAG_PALETTE } from "../lib/tagColors";
 import type { ArticleQuery, Feed, Folder, Tag } from "../types";
 import Icon, { type IconName } from "./Icon";
-import Brand from "./Brand";
 import ContextMenu, { type MenuEntry } from "./ContextMenu";
 import FeedAvatar from "./FeedAvatar";
 import PromptDialog from "./PromptDialog";
 import { descendantIds, folderAncestors, orderedFolders } from "../lib/folderTree";
 
 interface Props {
-  workspaceSwitch?: React.ReactNode;
   onAddFeed: () => void;
   /** Opens the Add-feed dialog on its Explore tab. */
   onExplore: () => void;
-  onOpenSettings: (section?: string) => void;
   onSearchClick: () => void;
   /** Refresh feeds. With no scope refreshes everything (the toolbar button);
    *  pass `{ feedId }` or `{ folderId }` for the per-source context menus. */
@@ -85,10 +82,8 @@ function SbItem({
 }
 
 export default function Sidebar({
-  workspaceSwitch,
   onAddFeed,
   onExplore,
-  onOpenSettings,
   onSearchClick,
   onRefresh,
   refreshing,
@@ -542,10 +537,6 @@ export default function Sidebar({
     <div className="sidebar" role="navigation">
       {isMac && <div className="titlebar" data-tauri-drag-region />}
 
-      {workspaceSwitch ? <div className="workspace-sidebar-heading">{workspaceSwitch}</div> : isMac && (
-        <Brand className="sb-brand" />
-      )}
-
       <div
         className="sidebar-search"
         role="button"
@@ -839,14 +830,6 @@ export default function Sidebar({
           onClick={onExplore}
         >
           <Icon name="globe" size={14} />
-        </button>
-        <div className="spacer" />
-        <button
-          title={t("sidebar.settings")}
-          aria-label={t("sidebar.settings")}
-          onClick={() => onOpenSettings()}
-        >
-          <Icon name="settings" size={14} />
         </button>
       </div>
 

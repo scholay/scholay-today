@@ -363,10 +363,9 @@ pub fn markdown(doc: &Document) -> String {
     out
 }
 
-/// Reading-oriented Markdown for the in-app structured view and for agents: no
-/// export frontmatter or duplicated title, and an image that was never written
-/// to a package keeps its own remote URL so the reader's captured-asset fetcher
-/// can resolve it against the stored snapshot.
+/// Markdown for the in-app Markdown tab and for agents: no export frontmatter
+/// or duplicated title. Images stay ordinary `![alt](url)` references so the
+/// Markdown renderer can hydrate them against the stored snapshot.
 pub fn reading_markdown(doc: &Document) -> String {
     blocks_markdown(doc, |a| match &a.path {
         Some(path) => format!("![{}]({})", escape(&a.alt), path),

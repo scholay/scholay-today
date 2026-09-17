@@ -73,8 +73,12 @@ describe("labels public DOM adapter and separate workspace", () => {
     expect(board).not.toContain('<HotPageView');
     expect(board).not.toMatch(/open_page_view|capturePageView|aiFormatPage|addFeed|papr\.db|document\.cookie/);
     const shell = readFileSync(new URL("../WorkspaceApp.tsx", import.meta.url), "utf8");
-    expect(shell).toContain('inert={workspace !== "labels"}');
-    expect(shell).toContain('event.key === "3"');
+    const trends = readFileSync(new URL("../hot/TrendsWorkspace.tsx", import.meta.url), "utf8");
+    expect(shell).toContain("<TrendsWorkspace");
+    expect(shell).toContain("inert={!trendsOpen}");
+    expect(shell).toContain('section={workspace === "labels" ? "labels" : "hot"}');
+    expect(trends).toContain("LabelBoard");
+    expect(trends).toContain('section === "labels"');
     for (const source of LABEL_SOURCES) expect(new URL(source.url).protocol).toBe("https:");
   });
 });

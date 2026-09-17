@@ -177,7 +177,7 @@
     "image": "Image",
     "imageUnavailable": "{{alt}}: unavailable, open the original image",
     "tab": "Markdown",
-    "tabHint": "Show saved Markdown, or automatically capture and format the webpage when none is cached",
+    "tabHint": "Show saved Markdown, including structured cleaning, or capture and format the webpage when none is cached",
     "language": "Output language (independent of interface language)",
     "display": "Formatted document display",
     "preview": "Preview",
@@ -203,6 +203,7 @@
     "truncated": "Source truncated",
     "truncatedHint": "The capture was truncated; this is not the complete page",
     "reviewHint": "AI-formatted from the captured page. Check important details against the source.",
+    "structuredHint": "Local structured cleaning as Markdown. The RSS original is unchanged and remains available for backtrace.",
     "formattingHint": "Preparing Markdown from this capture.",
     "capturedHint": "This captured source is preserved; retry will read the current webpage again.",
     "emptyHint": "Preparing to read and format the original webpage automatically.",
@@ -313,7 +314,7 @@
     },
     "sub": {
       "general": "Feed refresh, default behavior, startup",
-      "appearance": "Theme, accent color, density",
+      "appearance": "Theme, accent color, density, scale",
       "reading": "Body font, font size, layout",
       "subscriptions": "{{count}} feeds",
       "filters": "Keyword rules for incoming articles",
@@ -375,6 +376,8 @@
       "densityCompact": "Compact",
       "densityCozy": "Cozy",
       "densitySpacious": "Spacious",
+      "uiScale": "Interface scale",
+      "uiScaleDesc": "Enlarge or shrink the whole interface. ⌘+/⌘-/⌘0 also work",
       "listStyle": "Article list style",
       "listStyleList": "List",
       "listStyleCard": "Card",
@@ -513,7 +516,10 @@
       "commandPalette": "Command palette",
       "refreshAll": "Refresh all feeds",
       "addFeed": "Add feed",
-      "openSettings": "Settings"
+      "openSettings": "Settings",
+      "zoomIn": "Enlarge interface",
+      "zoomOut": "Shrink interface",
+      "zoomReset": "Reset interface scale"
     },
     "notifications": {
       "system": "System notifications",

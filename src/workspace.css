@@ -1,32 +1,28 @@
-.workspace-host { height: 100%; width: 100%; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: clip; }
-/* Keep the row below the native 38px title strip, with only a 4px inset.
-   The segmented control now fills the entire row. */
-.workspace-sidebar-heading { min-width: 0; min-height: 34px; flex-shrink: 0; margin: 4px 10px 8px; }
-.workspace-switcher { display: grid; grid-template-columns: minmax(0, 1fr); align-items: center; row-gap: 4px; min-width: 0; }
-/* Anchor the small brand to the sidebar. Use the breadcrumb's small type
-   and 38px title-strip alignment; do not intercept window drag gestures. */
-.workspace-title-brand { display: none; }
-.workspace-sidebar-heading .workspace-title-brand { position: absolute; top: 0; left: 10px; right: 10px; height: 24px; display: flex; align-items: center; gap: 5px; padding-bottom: 1px; z-index: 51; color: var(--muted); font: 400 11.5px/1.5 var(--ui); pointer-events: none; user-select: none; }
-:root[data-platform="mac"] .workspace-sidebar-heading .workspace-title-brand { left: 92px; height: 38px; }
+.workspace-host { --workspace-rail-width: 48px; height: 100%; width: 100%; min-width: 0; min-height: 0; display: grid; grid-template-columns: var(--workspace-rail-width) minmax(0, 1fr); overflow: clip; position: relative; }
+.workspace-chrome { position: absolute; top: 0; left: var(--workspace-rail-width); width: var(--col-sidebar, 248px); height: 38px; z-index: 54; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 0 12px; box-sizing: border-box; pointer-events: none; min-width: 0; overflow: hidden; }
+.workspace-title-brand { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: 0; height: 22px; color: var(--ink); font: 500 13px/1 var(--ui); user-select: none; }
+.workspace-title-brand > svg { flex-shrink: 0; color: var(--accent); }
+.workspace-title-brand > img { width: 14px; height: 15px; }
+.workspace-logo { object-fit: contain; flex-shrink: 0; pointer-events: none; }
+.workspace-rail .workspace-logo { width: 18px; height: 19px; }
+:root[data-mode="dark"] .workspace-logo { filter: invert(1); }
 .workspace-title-brand > span { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.workspace-title-brand .app-brand-logo { width: 14px; height: 15px; flex-shrink: 0; }
-.workspace-tabs { display: flex; align-items: center; gap: 2px; min-width: 0; padding: 2px; border: 1px solid var(--hair); border-radius: 8px; background: var(--paper); -webkit-app-region: no-drag; }
-.workspace-tabs button { display: flex; flex: 1 1 0; min-width: 0; min-height: 28px; align-items: center; justify-content: center; gap: 3px; padding: 4px 3px; border: 0; border-radius: 5px; background: none; color: var(--muted); font: 500 12px/1.5 var(--ui); white-space: nowrap; cursor: pointer; }
-.workspace-tabs button svg { flex-shrink: 0; }
-.workspace-tabs button:hover { background: var(--hover); color: var(--ink); }
-.workspace-tabs button[aria-pressed="true"] { color: var(--accent); background: var(--accent-soft); }
-.workspace-tabs button:disabled { opacity: .45; cursor: default; }
-.workspace-tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-.workspace-capture-status { grid-column: 1 / -1; color: var(--muted); font: 11px var(--ui); }
-.workspace-panels { position: relative; flex: 1; min-width: 0; min-height: 0; overflow: clip; }
+.workspace-capture-status { color: var(--muted); font: 11px var(--ui); white-space: nowrap; }
+.workspace-rail { grid-column: 1; grid-row: 1; position: relative; display: flex; flex-direction: column; align-items: center; gap: 4px; min-height: 0; padding: 8px 0 12px; background: var(--panel); border-right: 1px solid var(--hair); z-index: 52; -webkit-app-region: no-drag; }
+:root[data-platform="mac"] .workspace-rail { padding-top: 38px; }
+.workspace-rail-drag { display: none; }
+:root[data-platform="mac"] .workspace-rail-drag { display: block; position: absolute; top: 0; left: 0; right: 0; height: 38px; -webkit-app-region: drag; }
+.workspace-rail-group { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 100%; }
+.workspace-rail-foot { margin-top: auto; display: flex; flex-direction: column; align-items: center; width: 100%; }
+.workspace-rail button { display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; border: 0; border-radius: 8px; background: none; color: var(--muted); cursor: pointer; }
+.workspace-rail button:hover { background: var(--hover); color: var(--ink); }
+.workspace-rail button[aria-pressed="true"] { color: var(--accent); background: var(--accent-soft); }
+.workspace-rail button:disabled { opacity: .45; cursor: default; }
+.workspace-rail button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.workspace-rail-label { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.workspace-panels { grid-column: 2; grid-row: 1; position: relative; min-width: 0; min-height: 0; overflow: clip; }
 .workspace-panel { position: absolute; inset: 0; min-width: 0; min-height: 0; overflow: clip; }
 /* Keep a real-size layout for virtual rows and scroll offsets. `inert` handles
    keyboard focus; active props suspend native surfaces and RSS-only actions. */
 .workspace-panel.is-inactive { visibility: hidden; pointer-events: none; }
 .workspace-panel > .app-shell { height: 100%; }
-/* Each sidebar now owns native traffic-light clearance. RSS retains its
-   original list/reader insets instead of adding an application-wide row. */
-.window.focus .sidebar .workspace-switcher { visibility: hidden; }
-.reader-toolbar > .workspace-switcher { flex-shrink: 0; grid-template-columns: minmax(0, 1fr); width: 184px; margin-right: 10px; position: relative; }
-.reader-toolbar .workspace-title-brand { display: none; }
-.reader-toolbar .workspace-capture-status { position: absolute; top: 100%; left: 0; white-space: nowrap; background: var(--reader); padding: 4px 6px; border-radius: 4px; }

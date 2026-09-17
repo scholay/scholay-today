@@ -13,6 +13,7 @@ use crate::{
     state::AppState,
 };
 use rusqlite::{params, params_from_iter, types::Value as SqlValue, Connection, OptionalExtension};
+use serde::Serialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{
@@ -31,6 +32,7 @@ const ARTICLE_TIMEOUT: Duration = Duration::from_secs(45);
 const JOB_BUDGET: Duration = Duration::from_secs(30 * 60);
 const KEEP_JOBS: usize = 10;
 const SNIPPET_CHARS: i64 = 200;
+const STRUCTURED_LIST_LIMIT: i64 = 2000;
 const DEFAULT_READ_BUDGET: usize = 120 * 1024;
 /// Far below the adapter's 4 MiB single-line response ceiling.
 const MAX_READ_BUDGET: usize = 800 * 1024;
@@ -695,6 +697,81 @@ async fn clean_one(app: &AppHandle, article_id: i64, force: bool) -> Result<Outc
     Ok(Outcome::Cleaned(title))
 }
 
+// ─────────────────────────── desktop library ───────────────────────────
+
+/// One cleaned document in the on-device library. Folder names come from the
+/// subscription tree so the Files workspace can render a directory without a
+/// second query.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StructuredListItem {
+    pub article_id: i64,
+    pub feed_id: i64,
+    pub feed_title: String,
+    pub folder_id: Option<i64>,
+    pub folder_name: Option<String>,
+    pub title: String,
+    pub url: Option<String>,
+    pub published_at: Option<String>,
+    pub cleaned_at: String,
+    pub source_kind: String,
+    pub blocks: i64,
+    pub words: i64,
+    pub images: i64,
+    pub stale_schema: bool,
+}
+
+/// Newest-first cleaned documents, excluding archived feeds.
+pub fn list_structured_items(c: &Connection) -> Result<Vec<StructuredListItem>, String> {
+    ensure_schema(c)?;
+    let mut statement = c
+        .prepare(
+            "SELECT a.id,a.feed_id,f.title,f.folder_id,folders.name,a.title,a.url,a.published_at,s.cleaned_at,s.source_kind,s.blocks,s.words,s.images,s.schema_version
+             FROM article_structured s
+             JOIN articles a ON a.id=s.article_id
+             JOIN feeds f ON f.id=a.feed_id
+             LEFT JOIN folders ON folders.id=f.folder_id
+             WHERE f.id NOT IN (SELECT feed_id FROM library_archived_feeds)
+             ORDER BY datetime(s.cleaned_at) DESC, a.id DESC
+             LIMIT ?",
+        )
+        .map_err(|_| "无法准备已清洗文库查询")?;
+    let rows = statement
+        .query_map([STRUCTURED_LIST_LIMIT], |r| {
+            let schema: i64 = r.get(13)?;
+            Ok(StructuredListItem {
+                article_id: r.get(0)?,
+                feed_id: r.get(1)?,
+                feed_title: r.get(2)?,
+                folder_id: r.get(3)?,
+                folder_name: r.get(4)?,
+                title: r.get(5)?,
+                url: r.get(6)?,
+                published_at: r.get(7)?,
+                cleaned_at: r.get(8)?,
+                source_kind: r.get(9)?,
+                blocks: r.get(10)?,
+                words: r.get(11)?,
+                images: r.get(12)?,
+                stale_schema: schema != SCHEMA_VERSION,
+            })
+        })
+        .map_err(|_| "无法查询已清洗文库")?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| "无法读取已清洗文库")?;
+    Ok(rows)
+}
+
+#[tauri::command]
+pub async fn list_structured_documents(
+    state: tauri::State<'_, AppState>,
+    webview: tauri::Webview,
+) -> Result<Vec<StructuredListItem>, String> {
+    crate::hot_board::require_main(&webview)?;
+    let c = state.read().await;
+    list_structured_items(&c)
+}
+
 // ─────────────────────────── desktop command ───────────────────────────
 
 #[tauri::command]
@@ -920,6 +997,40 @@ mod tests {
             candidate_ids(&c, &selection(&json!({"cleaned":true}), None).unwrap()).unwrap(),
             vec![article_id]
         );
+    }
+
+    #[test]
+    fn structured_library_lists_cleaned_rows_with_folder_names() {
+        let c = test_db();
+        let folder_id = db::create_folder(&c, "科研").unwrap();
+        let filed = db::insert_feed(
+            &c,
+            "https://example.org/filed.xml",
+            None,
+            "已归档源",
+            None,
+            crate::models::SourceType::Rss,
+            Some(folder_id),
+        )
+        .unwrap();
+        let loose = feed(&c);
+        let kept = seed(&c, filed, "kept", "2026-09-09T00:00:00+00:00");
+        let other = seed(&c, loose, "loose", "2026-09-10T00:00:00+00:00");
+        let _raw = seed(&c, filed, "raw", "2026-09-11T00:00:00+00:00");
+        for (id, guid) in [(kept, "kept"), (other, "loose")] {
+            let mut doc = fixture("<h2>方法</h2><p>正文</p>", "public_webpage");
+            doc.article_id = id;
+            doc.capture_id = format!("clean-{guid}");
+            store(&c, &doc, "hash", None).unwrap();
+        }
+        let items = list_structured_items(&c).unwrap();
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].article_id, other);
+        assert_eq!(items[0].folder_name, None);
+        assert_eq!(items[1].article_id, kept);
+        assert_eq!(items[1].folder_name.as_deref(), Some("科研"));
+        assert_eq!(items[1].folder_id, Some(folder_id));
+        assert!(!items.iter().any(|item| item.title.contains("raw")));
     }
 
     #[test]

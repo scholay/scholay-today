@@ -177,7 +177,7 @@
     "image": "画像",
     "imageUnavailable": "{{alt}}：読み込めません。元の画像を開く",
     "tab": "Markdown",
-    "tabHint": "保存済みの Markdown を表示し、未保存の場合はウェブページを自動で取得・整形",
+    "tabHint": "保存済みの Markdown（構造化クリーニングを含む）を表示し、未保存の場合のみウェブページを取得・整形",
     "language": "出力言語（画面の言語とは別）",
     "display": "整理した文書の表示",
     "preview": "プレビュー",
@@ -203,6 +203,7 @@
     "truncated": "元の本文は一部省略",
     "truncatedHint": "取得内容は切り詰められており、ページ全体ではありません",
     "reviewHint": "取得したページを AI で整理しています。重要な情報は出典で確認してください。",
+    "structuredHint": "ローカルの構造化クリーニングを Markdown で表示します。RSS 原文は変更せず、いつでも遡れます。",
     "formattingHint": "取得した本文を Markdown に整理しています。",
     "capturedHint": "今回の取得原文は保持されています。再試行すると現在のページを読み直します。",
     "emptyHint": "元のページを自動で読み取り、整理する準備をしています。",
@@ -313,7 +314,7 @@
     },
     "sub": {
       "general": "フィードの更新、既定の動作、起動方法",
-      "appearance": "テーマ、アクセントカラー、密度",
+      "appearance": "テーマ、アクセントカラー、密度、倍率",
       "reading": "本文のフォント、文字サイズ、レイアウト",
       "subscriptions": "{{count}} 件のフィード",
       "filters": "新着記事へのキーワードルール",
@@ -375,6 +376,8 @@
       "densityCompact": "コンパクト",
       "densityCozy": "標準",
       "densitySpacious": "ゆったり",
+      "uiScale": "画面倍率",
+      "uiScaleDesc": "インターフェース全体を拡大または縮小します。⌘+ / ⌘- / ⌘0 でも変更できます",
       "listStyle": "記事リストのスタイル",
       "listStyleList": "リスト",
       "listStyleCard": "カード",
@@ -513,7 +516,10 @@
       "commandPalette": "コマンドパレット",
       "refreshAll": "すべてのフィードを更新",
       "addFeed": "フィードを追加",
-      "openSettings": "設定"
+      "openSettings": "設定",
+      "zoomIn": "画面を拡大",
+      "zoomOut": "画面を縮小",
+      "zoomReset": "画面倍率を戻す"
     },
     "notifications": {
       "system": "システム通知",

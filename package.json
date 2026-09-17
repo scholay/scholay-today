@@ -28,6 +28,7 @@
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-i18next": "^17.0.8",
+    "react-vertical-timeline-component": "^4.0.0",
     "zustand": "^5.0.13"
   },
   "devDependencies": {
