@@ -13,7 +13,7 @@ import { useBlockingOverlay } from "../lib/useBlockingOverlay";
 import { useUi } from "../store";
 import { acceptReaderPageEvent, readerPageRequest } from "../lib/readerPageSession";
 import { useReadingGroups } from "../lib/readingGroups";
-import { applyHotPageViewStatus, createHotPageViewState, hotPageViewForUrl, updateHotPageView, waitForHotPageView, type HotPageViewState } from "./hotPageViewState";
+import { applyHotPageViewStatus, createHotPageViewState, hotExternalUrl, hotPageViewForUrl, isBaiduVerificationUrl, updateHotPageView, waitForHotPageView, type HotPageViewState } from "./hotPageViewState";
 import "../components/reader-web-controls.css";
 import "./hot-page-view.css";
 
@@ -47,7 +47,9 @@ export default function HotPageView({ url, active, onClose, onStateChange, viewI
   overlayRef.current = overlay;
   const controllerRef = useRef<{ requestId: string; run: (action: PageViewAction) => void } | null>(null);
   const current = hotPageViewForUrl(state, sourceUrl);
-  const externalUrl = safePageViewUrl(current?.currentUrl ?? sourceUrl);
+  const currentUrl = safePageViewUrl(current?.currentUrl ?? sourceUrl);
+  const externalUrl = hotExternalUrl(sourceUrl, currentUrl);
+  const baiduVerification = isBaiduVerificationUrl(currentUrl);
   const stateChangeRef = useRef(onStateChange);
   stateChangeRef.current = onStateChange;
   useEffect(() => { stateChangeRef.current?.(active ? current : null); }, [active, current]);
@@ -195,7 +197,7 @@ export default function HotPageView({ url, active, onClose, onStateChange, viewI
           <button type="button" title={t("reader.webForward")} aria-label={t("reader.webForward")} disabled={!active || !current?.created} onClick={() => run("forward")}><Icon name="chevron-right" size={15}/></button>
           <button type="button" title={t("reader.webReload")} aria-label={t("reader.webReload")} disabled={!active || !sourceUrl || (!current?.created && !!current?.loading && !current.waiting)} onClick={() => current?.created ? run("reload") : retry()}><Icon name="refresh" size={14}/></button>
         </div>
-        <span className="reader-webview-url" title={externalUrl ?? undefined}>{externalUrl ?? t("reader.webUnsafeUrl")}</span>
+        <span className="reader-webview-url" title={currentUrl ?? undefined}>{currentUrl ?? t("reader.webUnsafeUrl")}</span>
         <WebZoomControls disabled={!active} requestId={current?.requestId} viewId={viewId}/>
         <WebThemeToggle disabled={!active}/>
         {current?.loading && <span className="reader-web-loading" role="status" title={current.waiting ? t("reader.webWaitingHint") : t("common.loading")} aria-label={current.waiting ? t("reader.webWaitingShort") : t("common.loading")}><span className="reader-web-spinner" aria-hidden="true"/>{current.waiting && <span>{t("reader.webWaitingShort")}</span>}</span>}
@@ -205,6 +207,10 @@ export default function HotPageView({ url, active, onClose, onStateChange, viewI
         </div>
       </div>
       {recreated && <div className="reader-cache-notice" role="status">网页缓存已释放，已按最近网址重新加载。</div>}
+      {baiduVerification && <div className="reader-web-notice" role="status">
+        <span>百度要求安全验证。若验证后仍返回此页，可在系统浏览器继续。</span>
+        <button type="button" disabled={!active || !externalUrl} onClick={() => externalOpen(externalUrl)}>在系统浏览器打开原始搜索</button>
+      </div>}
       {current && (current.error || current.downloadUrl) && <div className="reader-web-notice" role={current.error ? "alert" : "status"}>
         <span>{t(current.error === "create" ? "reader.webviewUnavailable" : current.error === "control" ? "reader.webControlUnavailable" : "reader.webDownloadHint")}</span>
         {current.error ? <button type="button" disabled={!active} onClick={retry}>{t("reader.retryWebpage")}</button> : <button type="button" disabled={!active} onClick={() => externalOpen(current.downloadUrl)}>{t("reader.webOpenDownload")}</button>}
