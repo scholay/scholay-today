@@ -49,6 +49,7 @@ export interface StructuredDocument {
   warnings?: string[];
   error?: string | null;
   markdown?: string;
+  schemaVersion?: number;
 }
 
 export interface AiFormattedDraft {

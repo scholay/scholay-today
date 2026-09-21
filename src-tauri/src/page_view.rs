@@ -44,7 +44,7 @@ static ACTIVE_INSTANCE: AtomicU64 = AtomicU64::new(0);
 static PAGES: LazyLock<Mutex<HashMap<String, Arc<PageRequest>>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 static VISIBLE_PAGE: Mutex<Option<String>> = Mutex::new(None);
 static USE_CLOCK: AtomicU64 = AtomicU64::new(0);
-const RSS_PAGE_LIMIT: usize = 10;
+const READING_PAGE_LIMIT: usize = 10;
 
 #[cfg(feature = "reader-tabs-smoke")]
 #[path = "reader_tabs_smoke.rs"]
@@ -52,9 +52,10 @@ pub mod smoke;
 
 fn page_id(id: Option<&str>) -> Result<&str, String> {
     let id = id.unwrap_or(LABEL);
-    if matches!(id, LABEL | "labels-page") || (id.starts_with("rss-") && id.len() <= 100 && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')) { Ok(id) }
+    if matches!(id, LABEL | "labels-page") || (is_reading_page(id) && id.len() <= 100 && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')) { Ok(id) }
     else { Err("Invalid page instance.".into()) }
 }
+fn is_reading_page(id: &str) -> bool { id.starts_with("rss-") || id.starts_with("hot-") }
 fn page(id: &str) -> Option<Arc<PageRequest>> {
     PAGES.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned()
 }
@@ -95,7 +96,7 @@ fn destroy_page(app: &AppHandle, id: &str) -> Result<(), String> {
     Ok(())
 }
 fn eviction_candidate(entries: &[Arc<PageRequest>]) -> Option<String> {
-    entries.iter().filter(|r| r.view_id.starts_with("rss-") && !r.capturing.load(Ordering::Acquire) && !r.presentation.lock().unwrap_or_else(|e| e.into_inner()).visible)
+    entries.iter().filter(|r| is_reading_page(&r.view_id) && !r.capturing.load(Ordering::Acquire) && !r.presentation.lock().unwrap_or_else(|e| e.into_inner()).visible)
         .min_by_key(|r| r.last_used.load(Ordering::Acquire)).map(|r| r.view_id.clone())
 }
 
@@ -557,9 +558,9 @@ pub async fn open_page_view(
     }
     // The previously visible page is now a background eviction candidate.
     activate_page(&app, &id);
-    if id.starts_with("rss-") {
+    if is_reading_page(&id) {
         let entries = pages();
-        if entries.iter().filter(|r| r.view_id.starts_with("rss-")).count() >= RSS_PAGE_LIMIT {
+        if entries.iter().filter(|r| is_reading_page(&r.view_id)).count() >= READING_PAGE_LIMIT {
             let victim = eviction_candidate(&entries).ok_or("All cached pages are busy.")?;
             let retired = page(&victim).ok_or("Missing cached page.")?;
             refresh_page_address(&app, &retired);
@@ -1155,6 +1156,23 @@ mod tests {
     }
 
     #[test]
+    fn grouped_cache_counts_hot_and_rss_together_but_not_authorization() {
+        let entries: Vec<_> = (0..11).map(|index| {
+            let mut request = capture_request();
+            request.view_id = if index == 10 { "labels-page".into() } else { format!("{}-{index}", if index % 2 == 0 { "hot" } else { "rss" }) };
+            request.last_used.store(index, Ordering::Release);
+            request.presentation.lock().unwrap().visible = false;
+            Arc::new(request)
+        }).collect();
+        assert_eq!(entries.iter().filter(|p| is_reading_page(&p.view_id)).count(), READING_PAGE_LIMIT);
+        assert_eq!(eviction_candidate(&entries).as_deref(), Some("hot-0"));
+        entries[0].last_used.store(100, Ordering::Release);
+        entries[1].capturing.store(true, Ordering::Release);
+        entries[2].presentation.lock().unwrap().visible = true;
+        assert_eq!(eviction_candidate(&entries).as_deref(), Some("rss-3"));
+    }
+
+    #[test]
     fn retired_requests_cannot_navigate_capture_or_publish_for_a_replacement() {
         let request = capture_request();
         assert!(request.is_active());
@@ -1169,7 +1187,8 @@ mod tests {
     fn native_instance_names_cannot_target_the_main_app_or_authorization_views() {
         assert_eq!(page_id(None).unwrap(), LABEL);
         assert!(page_id(Some("rss-123-abc-def")).is_ok());
-        for bad in ["main", "../main", "rss-<script>", "rss-中文", "authorization"] {
+        assert!(page_id(Some("hot-123-abc-def")).is_ok());
+        for bad in ["main", "../main", "rss-<script>", "rss-中文", "hot-../main", "hot-<script>", "authorization"] {
             assert!(page_id(Some(bad)).is_err());
         }
     }

@@ -229,7 +229,7 @@ async fn verify(app: AppHandle, base: String) -> Result<(), String> {
     wait_loaded(&app, "labels-page").await?;
     check(
         pages().len() == 12,
-        "hot and authorization pages do not consume ten RSS slots",
+        "legacy workspace and authorization pages do not consume reading slots",
     )?;
     check(
         pages()
@@ -269,6 +269,26 @@ async fn verify(app: AppHandle, base: String) -> Result<(), String> {
             .is_err(),
         "wrong-article capture rejected",
     )?;
+    // Exercise real mixed RSS / Hot ownership and retained Hot browser state.
+    open(&app, &base, "hot-retained", None, None).await?;
+    let hot = wait_loaded(&app, "hot-retained").await?;
+    let hot_instance = page("hot-retained").unwrap().instance;
+    evaluate(&hot, "(()=>{window.hotToken='retained';history.pushState({},'', '#hot-history');scrollTo(0,220);return true})()").await?;
+    open(&app, &base, "rss-2", None, None).await?;
+    check(open(&app, &base, "hot-retained", None, None).await?, "Hot tab reuses its native page across RSS switch")?;
+    check(page("hot-retained").unwrap().instance == hot_instance, "Hot instance generation retained")?;
+    check(evaluate(&hot, "hotToken==='retained' && location.hash==='#hot-history' && scrollY>0").await? == true, "Hot runtime, navigation and scroll retained")?;
+    for n in 1..=11 {
+        let id = format!("hot-eviction-{n}");
+        open(&app, &base, &id, None, None).await?;
+        wait_loaded(&app, &id).await?;
+    }
+    check(pages().iter().filter(|p| is_reading_page(&p.view_id)).count() == READING_PAGE_LIMIT, "RSS and Hot share a bounded ten-page LRU")?;
+    check(app.get_webview("hot-retained").is_none(), "least recently used Hot page is evicted")?;
+    check(app.get_webview("labels-page").is_some(), "authorization instance is outside reading cache")?;
+    check(!open(&app, &base, "hot-retained", Some(format!("{base}hot-resumed")), Some(1.3)).await?, "evicted Hot tab is reconstructed")?;
+    let hot_resumed = wait_loaded(&app, "hot-retained").await?;
+    check(hot_resumed.url().unwrap().path() == "/hot-resumed" && (page("hot-retained").unwrap().zoom.lock().unwrap().factor - 1.3).abs() < 0.001, "Hot reconstruction restores URL and zoom")?;
     for request in pages() {
         close_page_view(app.clone(), Some(request.view_id.clone()), None).await?;
     }

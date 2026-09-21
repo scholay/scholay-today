@@ -15,7 +15,9 @@ describe("RSS and Hot integration lifecycle boundaries", () => {
     }
     expect(reader).toContain("readerPageRequest(tab.id");
     expect(reader).toContain("api.setPageViewVisible(false, tab.id, requestId)");
-    expect(hot).toContain("enqueuePageView(() => api.closePageView(viewId, requestId))");
+    expect(hot).toContain("enqueuePageView(suspend)");
+    expect(hot).toContain("persistent ? api.setPageViewVisible(false, viewId, requestId) : api.closePageView(viewId, requestId)");
+    expect(hot).toContain("readerPageRequest(viewId");
     expect(hot).toContain('nextPageViewRequestId("hot")');
   });
 
@@ -54,7 +56,12 @@ describe("RSS and Hot integration lifecycle boundaries", () => {
   });
 
   it("keeps Hot independent of RSS article state, capture and AI", () => {
-    expect(hot).not.toMatch(/useUi|selectedArticleId|capturePageView|aiFormatPage|extractFulltext|startTranslate|<iframe\b/);
+    // Overlay flags are now intentionally shared; RSS article state and
+    // article-producing/paid operations must remain completely independent.
+    expect(hot).not.toMatch(/selectedArticleId|capturePageView|aiFormatPage|extractFulltext|startTranslate|<iframe\b/);
+    expect(hot).toContain("const overlay = blocking || modal || menu || ai;");
+    expect(hot).toContain("payload.viewId !== viewId");
+    expect(hot).toContain("acceptReaderPageEvent(payload)");
     expect(hot).toContain("safePageViewUrl(url)");
     expect(hot).toContain("safePageViewUrl(target)");
     expect(hot).toContain("20_000");

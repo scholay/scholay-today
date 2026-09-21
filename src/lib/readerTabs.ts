@@ -83,6 +83,7 @@ interface ReaderTabs extends TabSession {
   activate: (id: string) => void;
   close: (ids: string[], remember?: boolean) => void;
   reopen: () => void;
+  restore: (tab: ReadingTab) => string | null;
   cycle: (delta: number) => void;
   update: (id: string, patch: Partial<ReadingState>) => void;
   metadata: (id: string, title: string, feedId: number) => void;
@@ -116,6 +117,15 @@ export const useReaderTabs = create<ReaderTabs>((set, get) => ({
     const existing = s.tabs.find(t => t.articleId === last.articleId);
     const tab = { ...last, id: `rss-${last.articleId}-${crypto.randomUUID()}`, restored: true };
     set({ ...activateTab({ ...s, tabs: existing ? s.tabs : [...s.tabs, tab] }, existing?.id ?? tab.id), closed });
+  },
+  restore: saved => {
+    const s = get();
+    if (s.captureTabId) return null;
+    const existing = s.tabs.find(t => t.articleId === saved.articleId);
+    const tab = { ...saved, id: `rss-${saved.articleId}-${crypto.randomUUID()}`, reading: { ...saved.reading }, restored: true };
+    const id = existing?.id ?? tab.id;
+    set({ ...activateTab({ ...s, tabs: existing ? s.tabs : [...s.tabs, tab] }, id), closed: s.closed.filter(t => t.id !== saved.id) });
+    return id;
   },
   cycle: delta => {
     const s = get();

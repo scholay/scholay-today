@@ -12,7 +12,9 @@ import { capturedImageSources, renderMarkdown } from "../lib/markdown";
 import { activeMarkdownHeading, prepareMarkdownReading, type MarkdownHeading } from "../lib/markdownReading";
 import { safePageViewUrl } from "../lib/pageViewState";
 import { reportError, toast } from "../toast";
-import type { StructuredListItem } from "../types";
+import type { StructuredDocument, StructuredListItem } from "../types";
+import { useReadingGroups, type FileTab } from "../lib/readingGroups";
+import { useContentScroll } from "../lib/useContentScroll";
 import "../components/ai-formatted.css";
 
 function formatWhen(value: string | null | undefined): string {
@@ -21,15 +23,18 @@ function formatWhen(value: string | null | undefined): string {
   return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString("zh-CN");
 }
 
-export default function StructuredReader({ item }: { item: StructuredListItem }) {
+export default function StructuredReader({ item, exampleDocument, tab }: { item: StructuredListItem; exampleDocument?: StructuredDocument; tab?: FileTab }) {
   const { t } = useTranslation();
   const stored = useQuery({
-    queryKey: ["structured", item.articleId],
+    queryKey: [exampleDocument ? "structured-example" : "structured", item.articleId],
     queryFn: () => api.articleStructuredDocument(item.articleId),
+    enabled: !exampleDocument,
   });
-  const structured = stored.data?.articleId === item.articleId && stored.data.cleaned ? stored.data : null;
+  const result = exampleDocument ?? stored.data;
+  const structured = result?.articleId === item.articleId && result.cleaned ? result : null;
   const markdown = structured?.markdown?.trim() ?? "";
-  const [display, setDisplay] = useState<"preview" | "source">("preview");
+  const [display, setDisplayState] = useState<"preview" | "source">(tab?.reading.markdownDisplay ?? "preview");
+  const setDisplay = (value: "preview" | "source") => { setDisplayState(value); if (tab) useReadingGroups.getState().update(tab.id, { markdownDisplay: value }); };
   const parts = useMemo(() => splitMarkdownFrontmatter(markdown), [markdown]);
   const images = useMemo(() => capturedImageSources(parts.body), [parts.body]);
   const reading = useMemo(
@@ -41,15 +46,19 @@ export default function StructuredReader({ item }: { item: StructuredListItem })
   const bodyRef = useRef<HTMLDivElement>(null);
   const sectionRef = useRef<HTMLElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const sourceRef = useRef<HTMLTextAreaElement>(null);
   const outlineButtonRef = useRef<HTMLButtonElement>(null);
   const [wide, setWide] = useState(false);
-  const [outlineExpanded, setOutlineExpanded] = useState<boolean | null>(null);
+  const [outlineExpanded, setOutlineState] = useState<boolean | null>(tab?.reading.outline ?? null);
+  const setOutlineExpanded = (value: boolean) => { setOutlineState(value); if (tab) useReadingGroups.getState().update(tab.id, { outline: value }); };
   const [activeId, setActiveId] = useState<string | null>(null);
   const hasOutline = display === "preview" && reading.headings.length > 0;
   const showOutline = hasOutline && (outlineExpanded ?? wide);
   const outlineId = `library-outline-${item.articleId}`;
   const captureId = structured?.captureId;
   const sourceUrl = safePageViewUrl(structured?.sourceUrl ?? item.url);
+  useContentScroll(scrollRef, tab?.id, "markdownScroll", display === "preview" && markdown);
+  useContentScroll(sourceRef, tab?.id, "markdownSourceScroll", display === "source" && markdown);
 
   useLayoutEffect(() => {
     const section = sectionRef.current;
@@ -156,8 +165,10 @@ export default function StructuredReader({ item }: { item: StructuredListItem })
         }}><Icon name="arrow-down" size={15}/></button>
       </div>
     </div>
+    {exampleDocument && <p className="files-example-notice" role="note">内置排版示例 · 非真实文章，不属于你的清洗文库。</p>}
+    {item.staleSchema && <p className="files-example-notice" role="note">这篇文档使用旧版清洗规范。当前内容仍可阅读，重新清洗后才会更新。</p>}
     {stored.isLoading ? <p className="library-empty">正在打开清洗文档…</p>
-      : stored.isError ? <p className="library-empty">无法读取这篇清洗文档。</p>
+      : stored.isError ? <div className="library-empty" role="alert"><p>无法读取这篇清洗文档。</p><button type="button" onClick={() => void stored.refetch()}>重试</button></div>
       : !markdown ? <p className="library-empty">这篇记录还没有可阅读的 Markdown。</p>
       : <div className={`ai-formatted-layout${wide ? " md-wide" : " md-compact"}`}>
         {showOutline && <>
@@ -166,21 +177,21 @@ export default function StructuredReader({ item }: { item: StructuredListItem })
         </>}
         <div ref={scrollRef} className="reader-scroll ai-formatted-scroll">
           <article className="article reader-content">
-            {structured && <div className="reader-structured" role="note">
+            {structured && !exampleDocument && <div className="reader-structured" role="note">
               <Icon name="sparkle" size={12}/>
               <span>
                 {t(`reader.structuredSource.${structured.sourceKind}`, { defaultValue: t("reader.structuredSource.unknown") })}
                 {" · "}
                 {t("reader.structuredStats", { words: structured.words ?? item.words, images: structured.images ?? item.images })}
               </span>
-              {(structured.truncated ? [t("reader.structuredTruncated")] : []).concat(structured.warnings ?? []).map((warning) => (
+              {[...new Set((structured.truncated ? [t("reader.structuredTruncated")] : []).concat(structured.error ? [structured.error] : [], structured.warnings ?? []))].map((warning) => (
                 <small key={warning}>{warning}</small>
               ))}
             </div>}
             {display === "preview"
               ? <div ref={bodyRef} className="article-body ai-formatted-body" onClick={onLinkClick} dangerouslySetInnerHTML={previewMarkup}/>
-              : <textarea className="ai-formatted-source" readOnly spellCheck={false} aria-label={t("aiFormatted.source")} value={markdown}/>}
-            <p className="ai-format-footnote">{t("aiFormatted.structuredHint")}</p>
+              : <textarea ref={sourceRef} className="ai-formatted-source" readOnly spellCheck={false} aria-label={t("aiFormatted.source")} value={markdown}/>}
+            <p className="ai-format-footnote">{exampleDocument ? "离线排版示例，仅用于展示文库阅读效果。" : t("aiFormatted.structuredHint")}</p>
           </article>
         </div>
       </div>}

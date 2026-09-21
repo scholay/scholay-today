@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 interface Props {
   /** Pixel width of the pane this handle resizes, at drag start. */
@@ -15,6 +15,8 @@ interface Props {
   onResize: (width: number) => void;
   /** Accessible label for the separator. */
   label: string;
+  /** Persistent divider and grip for layouts without a visible pane border. */
+  visible?: boolean;
 }
 
 /**
@@ -31,15 +33,16 @@ interface Props {
  * frame (its `left` tracks the live `--col-*` variable), and WebKit (the macOS
  * Tauri webview) releases the capture whenever the captured element changes
  * position — which dropped the drag and flickered the line mid-gesture. The
- * handle draws no line on hover/drag now (the `col-resize` cursor is the
- * affordance); only keyboard focus shows one, where capture loss can't apply.
+ * An optional visible variant draws a stable divider and grip; neither uses
+ * pointer capture or changes the handle's geometry during the gesture.
  */
-export default function ResizeHandle({ width, side, min, max, onResize, label }: Props) {
+export default function ResizeHandle({ width, side, min, max, onResize, label, visible = false }: Props) {
   // Latest props in a ref so the move/up listeners (bound once per drag) always
   // read fresh values without re-binding mid-drag.
   const latest = useRef({ width, side, min, max, onResize });
   latest.current = { width, side, min, max, onResize };
   const cleanupDrag = useRef<(() => void) | null>(null);
+  const [dragging, setDragging] = useState(false);
 
   const onPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     // Ignore secondary buttons so a right-click context menu can't start a drag.
@@ -49,6 +52,9 @@ export default function ResizeHandle({ width, side, min, max, onResize, label }:
     const startX = e.clientX;
     const { width: startW } = latest.current;
 
+    const oldCursor = document.body.style.cursor;
+    const oldSelect = document.body.style.userSelect;
+    setDragging(true);
     document.body.style.cursor = "col-resize";
     document.body.style.userSelect = "none";
 
@@ -61,16 +67,19 @@ export default function ResizeHandle({ width, side, min, max, onResize, label }:
       onResize(Math.min(max, Math.max(min, raw)));
     };
     const up = () => {
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
+      document.body.style.cursor = oldCursor;
+      document.body.style.userSelect = oldSelect;
+      setDragging(false);
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
       window.removeEventListener("pointercancel", up);
+      window.removeEventListener("blur", up);
       cleanupDrag.current = null;
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
     window.addEventListener("pointercancel", up);
+    window.addEventListener("blur", up);
     cleanupDrag.current = up;
   }, []);
 
@@ -82,7 +91,11 @@ export default function ResizeHandle({ width, side, min, max, onResize, label }:
     let delta = 0;
     if (e.key === "ArrowLeft") delta = side === "right" ? -step : step;
     else if (e.key === "ArrowRight") delta = side === "right" ? step : -step;
-    else return;
+    else if (e.key === "Home" || e.key === "End") {
+      e.preventDefault();
+      onResize(e.key === "Home" ? min : max);
+      return;
+    } else return;
     e.preventDefault();
     onResize(Math.min(max, Math.max(min, width + delta)));
   }, []);
@@ -92,17 +105,16 @@ export default function ResizeHandle({ width, side, min, max, onResize, label }:
   useEffect(() => {
     return () => {
       cleanupDrag.current?.();
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
     };
   }, []);
 
   return (
     <div
-      className="resize-handle"
+      className={`resize-handle${visible ? " is-visible" : ""}${dragging ? " is-dragging" : ""}`}
       role="separator"
       aria-orientation="vertical"
       aria-label={label}
+      title={`${label}：拖动或使用左右方向键`}
       aria-valuenow={Math.round(width)}
       aria-valuemin={min}
       aria-valuemax={Math.round(max)}

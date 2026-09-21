@@ -44,7 +44,7 @@ jobs:
       - name: Reversible theme in real WKWebView / WebView2
         if: ${{ !cancelled() && steps.rust_tests.outcome == 'success' }}
         run: cargo run --locked -p papr --example page-theme-smoke
-      - name: RSS tab cache in real WKWebView / WebView2
+      - name: Reading tab cache in real WKWebView / WebView2
         if: ${{ !cancelled() && steps.rust_tests.outcome == 'success' }}
         run: cargo run --locked -p papr --features reader-tabs-smoke --example reader-tabs-smoke
       - name: Real WebView2 capture and image-export fixture

@@ -1,6 +1,6 @@
 .reader-workspace { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; background: var(--reader); }
 .reader-tabbar { display: flex; flex: 0 0 38px; min-width: 0; background: var(--paper); border-bottom: 1px solid var(--hair); }
-.reader-tabs { display: flex; min-width: 0; flex: 1; overflow-x: auto; scrollbar-width: thin; }
+.reader-tabs { display: flex; min-width: 0; flex: 1; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; }
 .reader-tab { display: flex; flex: 0 0 192px; min-width: 0; max-width: 240px; border-right: 1px solid var(--hair); border-top: 2px solid transparent; color: var(--muted); }
 .reader-tab.is-active { background: var(--reader); color: var(--ink); border-top-color: var(--accent); border-bottom: 1px solid var(--reader); margin-bottom: -1px; border-radius: 5px 5px 0 0; }
 .reader-tab > button { display: flex; align-items: center; gap: 7px; min-width: 0; border: 0; background: transparent; color: inherit; cursor: pointer; font: 12px var(--ui); }
@@ -14,3 +14,6 @@
 .reading-tab-panel { flex: 1; display: flex; min-height: 0; min-width: 0; }
 .reading-tab-panel > .reader { flex: 1; min-width: 0; }
 .reader-cache-notice { color: var(--muted); padding: 5px 12px; font-size: 11px; background: var(--panel); }
+.workspace-reader-tabbar { height: 38px; flex-basis: 38px; position: relative; z-index: 2; }
+.workspace-reader-tabbar .reader-tab > [role="tab"] > svg { flex-shrink: 0; color: var(--muted); }
+.reading-workspace-empty { flex: 1; display: grid; place-content: center; gap: 12px; padding: 28px; text-align: center; color: var(--muted); font: 13px/1.7 var(--ui); }

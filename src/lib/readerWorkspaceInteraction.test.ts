@@ -7,11 +7,14 @@ import { invoke } from "@tauri-apps/api/core";
 import ReaderWorkspace from "../components/ReaderWorkspace";
 import HotPageView from "../hot/HotPageView";
 import { useReaderTabs, restoreTabSession } from "./readerTabs";
+import { activateReadingTab, closeReadingTabs, emptyGroupSession, reopenReadingTab, useReadingGroups, type HotTab } from "./readingGroups";
 import { useFormatJobs } from "./formatJobs";
 import { useUi } from "../store";
 import { enqueuePageView } from "./pageViewQueue";
 import type { ArticleDetail, AiFormattedDraft } from "../types";
 import type { PageCapture } from "../types";
+import HotTabReader from "../hot/HotTabReader";
+import WorkspaceReadingTabs from "../components/WorkspaceReadingTabs";
 
 const bus = vi.hoisted(() => new Map<string, Set<(event: { payload: any }) => void>>());
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(async () => null), Channel: class { onmessage = () => {}; } }));
@@ -41,6 +44,7 @@ beforeEach(() => {
   vi.stubGlobal("matchMedia", () => ({ matches: false }));
   bus.clear(); native = new Map(); instance = 0;
   useReaderTabs.setState({ tabs: [], activeId: null, recent: [], closed: [], captureTabId: null });
+  useReadingGroups.setState({ ...emptyGroupSession(), closed: [], loading: {} });
   useFormatJobs.setState({ jobs: {} });
   useUi.setState({ modalOpen: false, menuOpen: false, aiOpen: false, query: { kind: "all" }, prefs: { ...useUi.getState().prefs, markReadOnOpen: true, markReadOnScroll: true } });
   localStorage.setItem("pref.readerViewMode", "web");
@@ -206,4 +210,91 @@ it("serializes a slow native open across rapid workspace transitions without des
   await render(true); await settle();
   expect(native.has("page-view")).toBe(false);
   expect(host.querySelector(".reader-workspace .reader-webview-url")?.textContent).toBe(article(1).url);
+});
+
+const hotSource = { id: "fixture", name: "Fixture hot", kind: "hot" as const, description: "Public fixture", homepage: "https://example.invalid", project: "Fixture", project_url: "https://example.invalid/docs" };
+const hotItem = (n: number) => ({ id: String(n), title: `Hot ${n}`, url: `https://example.invalid/hot/${n}`, description: "Public summary", heat: null, rank: n, published_at: null });
+function HotTestReader({ active }: { active: boolean }) {
+  const tabs = useReadingGroups(s => s.tabs);
+  const id = useReadingGroups(s => s.active.hot);
+  const tab = tabs.find((t): t is HotTab => t.group === "hot" && t.id === id);
+  return createElement("section", { "data-hot-test": true }, createElement(WorkspaceReadingTabs, { group: "hot", active }), tab && createElement(HotTabReader, { key: tab.id, tab, active }));
+}
+async function mixed(rss: boolean) {
+  await act(() => root.render(createElement(QueryClientProvider, { client: qc }, createElement("div", null,
+    createElement(ReaderWorkspace, { active: rss, onToast: vi.fn() }), createElement(HotTestReader, { active: !rss }),
+  )))); await settle();
+}
+it("retains hot tab identity through summary, RSS and overlay transitions; background open is lazy", async () => {
+  await mixed(true); await open(1);
+  await act(() => { useReadingGroups.getState().openHot(hotSource, hotItem(1), null, true, "web"); useReadingGroups.getState().openHot(hotSource, hotItem(2), null, true, "web"); });
+  expect(native.size).toBe(1);
+  const hot = useReadingGroups.getState().tabs[0];
+  await act(() => activateReadingTab(hot.id)); await mixed(false);
+  const first = native.get(hot.id)!;
+  expect(first).toBeDefined(); expect(native.size).toBe(2);
+  await act(() => useReadingGroups.getState().setHotDisplay(hot.id, "summary")); await settle();
+  expect(native.get(hot.id)).toEqual(first);
+  await act(() => useReadingGroups.getState().setHotDisplay(hot.id, "web")); await settle();
+  await mixed(true); await mixed(false);
+  expect(native.get(hot.id)).toEqual(first); expect(commands("close_page_view")).toHaveLength(0);
+  await act(() => useUi.setState({ menuOpen: true })); await settle();
+  expect(commands("set_page_view_visible").at(-1)?.[1]).toMatchObject({ viewId: hot.id, visible: false });
+  await act(() => emit("reader-tab-shortcut", "close")); expect(useReadingGroups.getState().tabs).toHaveLength(2);
+  await act(() => useUi.setState({ menuOpen: false })); await settle();
+  expect(commands("set_page_view_visible").at(-1)?.[1]).toMatchObject({ viewId: hot.id, visible: true });
+  expect(commands("capture_page_view")).toHaveLength(0); expect(commands("ai_format_page")).toHaveLength(0);
+});
+it("hot native shortcuts close and reopen a fresh instance, rejecting late URL/zoom events", async () => {
+  await mixed(false);
+  await act(() => useReadingGroups.getState().openHot(hotSource, hotItem(1), null, false, "web")); await settle();
+  const tab = useReadingGroups.getState().tabs[0], page = native.get(tab.id)!;
+  await act(() => emit("page-view-status", { ...page, viewId: tab.id, phase: "loaded", url: "https://example.invalid/latest" }));
+  await act(() => emit("page-view-zoom", { ...page, viewId: tab.id, factor: 1.5, mode: "manual" }));
+  await act(() => emit("reader-tab-shortcut", "close")); await settle();
+  expect(native.has(tab.id)).toBe(false); expect(useReadingGroups.getState().tabs).toHaveLength(0);
+  await act(() => emit("reader-tab-shortcut", "reopen")); await settle();
+  const reopened = useReadingGroups.getState().tabs[0];
+  expect(reopened.id).not.toBe(tab.id);
+  expect(commands("open_page_view").at(-1)?.[1]).toMatchObject({ viewId: reopened.id, resumeUrl: "https://example.invalid/latest", zoomFactor: 1.5 });
+  await act(() => {
+    emit("page-view-status", { ...page, viewId: tab.id, phase: "loaded", url: "https://wrong.invalid" });
+    emit("page-view-zoom", { ...page, viewId: tab.id, factor: 3, mode: "manual" });
+  });
+  expect(useReadingGroups.getState().tabs[0].reading.zoom).toBe(1.5);
+  expect(useReadingGroups.getState().tabs[0].reading.webUrl).not.toContain("wrong.invalid");
+});
+it("hot eviction keeps the tab and reconstructs it with saved URL/zoom and a new request generation", async () => {
+  await mixed(false);
+  await act(() => useReadingGroups.getState().openHot(hotSource, hotItem(1), null, false, "web")); await settle();
+  const tab = useReadingGroups.getState().tabs[0], page = native.get(tab.id)!;
+  await mixed(true);
+  await act(() => {
+    native.delete(tab.id);
+    emit("page-view-evicted", { ...page, viewId: tab.id, url: "https://example.invalid/resumed", factor: 1.4, mode: "manual" });
+  });
+  expect(useReadingGroups.getState().tabs).toHaveLength(1);
+  await mixed(false);
+  expect(commands("open_page_view").at(-1)?.[1]).toMatchObject({ viewId: tab.id, resumeUrl: "https://example.invalid/resumed", zoomFactor: 1.4 });
+  expect(native.get(tab.id)?.requestId).not.toBe(page.requestId);
+  expect(host.querySelector("[data-hot-test] .reader-cache-notice")).not.toBeNull();
+});
+it("a slow hot open followed by close/reopen cannot close the replacement or resurrect the old tab", async () => {
+  let release!: () => void;
+  const pending = new Promise<void>(resolve => { release = resolve; });
+  const normal = vi.mocked(invoke).getMockImplementation()!;
+  let first = true;
+  vi.mocked(invoke).mockImplementation(async (command, args, options) => {
+    if (command === "open_page_view" && first) { first = false; await pending; }
+    return normal(command, args, options);
+  });
+  await mixed(false);
+  await act(() => useReadingGroups.getState().openHot(hotSource, hotItem(1), null, false, "web"));
+  const old = useReadingGroups.getState().active.hot!;
+  await act(() => closeReadingTabs([old]));
+  await act(() => reopenReadingTab("hot"));
+  const current = useReadingGroups.getState().active.hot!;
+  await act(async () => { release(); await enqueuePageView(() => {}); }); await settle();
+  expect(current).not.toBe(old); expect(native.has(old)).toBe(false); expect(native.has(current)).toBe(true);
+  expect(useReadingGroups.getState().tabs).toHaveLength(1);
 });

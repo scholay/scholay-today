@@ -28,6 +28,7 @@ const ALLOWED_TAGS = new Set([
 // style, srcset) is stripped.
 const ALLOWED_ATTRS: Record<string, Set<string>> = {
   a: new Set(["href", "title"]),
+  ol: new Set(["start"]),
   td: new Set(["colspan", "rowspan"]),
   th: new Set(["colspan", "rowspan", "scope"]),
 };

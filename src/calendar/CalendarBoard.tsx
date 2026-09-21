@@ -554,7 +554,7 @@ export default function CalendarBoard({ active, view }: { active: boolean; view:
           {months.map((pane) => <MonthPane key={`${view}-${pane.year}-${pane.month}`} pane={pane} today={today} selected={selected} events={visible} yearMode={view === "year"} scale={view === "year" && (tag != null || focusKey != null)} focusKey={focusKey} focusIds={focusIds} onSelectDay={selectDay} />)}
         </div>
         {splitWidth > 0 && <div className="resize-handle-slot" style={{ left: split.almanacWidth }}>
-          <ResizeHandle width={split.almanacWidth} side="right" min={Math.min(ALMANAC_MIN, split.almanacWidth)} max={Math.max(split.almanacWidth, splitWidth - Math.min(DETAIL_MIN, splitWidth))} onResize={resizeAlmanac} label="调整月历宽度"/>
+          <ResizeHandle visible width={split.almanacWidth} side="right" min={Math.min(ALMANAC_MIN, split.almanacWidth)} max={Math.max(split.almanacWidth, splitWidth - Math.min(DETAIL_MIN, splitWidth))} onResize={resizeAlmanac} label="调整月历宽度"/>
         </div>}
         <section ref={detailRef} className="calendar-detail" aria-label="详情">
           {tag && <TagGlossary tag={tag} view={view} />}

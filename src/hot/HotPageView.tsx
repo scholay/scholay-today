@@ -10,12 +10,15 @@ import { enqueuePageView, nextPageViewRequestId } from "../lib/pageViewQueue";
 import { isPageViewStatusEvent, safePageViewUrl, type PageViewAction } from "../lib/pageViewState";
 import { reportError } from "../toast";
 import { useBlockingOverlay } from "../lib/useBlockingOverlay";
+import { useUi } from "../store";
+import { acceptReaderPageEvent, readerPageRequest } from "../lib/readerPageSession";
+import { useReadingGroups } from "../lib/readingGroups";
 import { applyHotPageViewStatus, createHotPageViewState, hotPageViewForUrl, updateHotPageView, waitForHotPageView, type HotPageViewState } from "./hotPageViewState";
 import "../components/reader-web-controls.css";
 import "./hot-page-view.css";
 
 export interface HotPageViewProps {
-  viewId?: "page-view" | "labels-page";
+  viewId?: string;
   url: string;
   active: boolean;
   onClose?: () => void;
@@ -29,10 +32,17 @@ export default function HotPageView({ url, active, onClose, onStateChange, viewI
   const sourceUrl = safePageViewUrl(url);
   const [state, setState] = useState<HotPageViewState | null>(null);
   const [attempt, setAttempt] = useState(0);
+  const previousAttempt = useRef(0);
+  const persistent = viewId.startsWith("hot-");
+  const [recreated, setRecreated] = useState(false);
   const hostRef = useRef<HTMLDivElement>(null);
   const activeRef = useRef(active);
   activeRef.current = active;
-  const overlay = useBlockingOverlay();
+  const blocking = useBlockingOverlay();
+  const modal = useUi(s => s.modalOpen);
+  const menu = useUi(s => s.menuOpen);
+  const ai = useUi(s => s.aiOpen);
+  const overlay = blocking || modal || menu || ai;
   const overlayRef = useRef(overlay);
   overlayRef.current = overlay;
   const controllerRef = useRef<{ requestId: string; run: (action: PageViewAction) => void } | null>(null);
@@ -41,11 +51,18 @@ export default function HotPageView({ url, active, onClose, onStateChange, viewI
   const stateChangeRef = useRef(onStateChange);
   stateChangeRef.current = onStateChange;
   useEffect(() => { stateChangeRef.current?.(active ? current : null); }, [active, current]);
+  useEffect(() => {
+    if (!recreated) return;
+    const timer = window.setTimeout(() => setRecreated(false), 4500);
+    return () => window.clearTimeout(timer);
+  }, [recreated]);
 
   useEffect(() => {
     const host = hostRef.current;
     if (!active || !sourceUrl || !host) return;
-    const requestId = nextPageViewRequestId("hot");
+    const requestId = persistent ? readerPageRequest(viewId, attempt !== previousAttempt.current) : nextPageViewRequestId("hot");
+    previousAttempt.current = attempt;
+    const suspend = () => persistent ? api.setPageViewVisible(false, viewId, requestId) : api.closePageView(viewId, requestId);
     let cancelled = false;
     let open = false;
     let unlisten: UnlistenFn | undefined;
@@ -95,7 +112,7 @@ export default function HotPageView({ url, active, onClose, onStateChange, viewI
       if (cancelled || !activeRef.current) return;
       try {
         const removeListener = await listen<api.PageViewStatusEvent>("page-view-status", ({ payload }) => {
-          if (cancelled || !activeRef.current || !isPageViewStatusEvent(payload) || payload.requestId !== requestId) return;
+          if (cancelled || !activeRef.current || !isPageViewStatusEvent(payload) || payload.requestId !== requestId || payload.viewId !== viewId || (persistent && !acceptReaderPageEvent(payload))) return;
           if ((payload.phase === "loading" || payload.phase === "loaded") && !safePageViewUrl(payload.url)) return;
           setState((value) => applyHotPageViewStatus(value, payload));
           if (payload.phase === "loading") armWaitTimer();
@@ -104,15 +121,19 @@ export default function HotPageView({ url, active, onClose, onStateChange, viewI
         if (cancelled || !activeRef.current) { removeListener(); return; }
         unlisten = removeListener;
         armWaitTimer();
-        await api.openPageView(sourceUrl, bounds(), requestId, !overlayRef.current, viewId);
+        const saved = persistent ? useReadingGroups.getState().tabs.find(tab => tab.id === viewId)?.reading : undefined;
+        const reused = await api.openPageView(sourceUrl, bounds(), requestId, !overlayRef.current, viewId, saved);
+        if (!cancelled) setRecreated(!reused && Boolean(saved?.webUrl));
         open = true;
         if (cancelled || !activeRef.current) {
-          await api.closePageView(viewId, requestId).catch(() => {});
+          await suspend().catch(() => {});
           return;
         }
         // A fast loaded event may precede the open response. Creation must not
         // put an already-loaded page back into a permanent loading state.
         setState((value) => updateHotPageView(value, requestId, { created: true }));
+        // An overlay can open while the native creation is in flight.
+        await api.setPageViewVisible(!overlayRef.current, viewId, requestId);
       } catch {
         clearWaitTimer();
         unlisten?.();
@@ -120,7 +141,7 @@ export default function HotPageView({ url, active, onClose, onStateChange, viewI
         if (!cancelled && activeRef.current) {
           setState((value) => updateHotPageView(value, requestId, { created: false, loading: false, waiting: false, error: "create" }));
         }
-        await api.closePageView(viewId, requestId).catch(() => {});
+        await suspend().catch(() => {});
       }
     });
 
@@ -141,7 +162,7 @@ export default function HotPageView({ url, active, onClose, onStateChange, viewI
       if (controllerRef.current?.requestId === requestId) controllerRef.current = null;
       observer.disconnect();
       window.removeEventListener("resize", sync);
-      void enqueuePageView(() => api.closePageView(viewId, requestId)).catch(() => {});
+      void enqueuePageView(suspend).catch(() => {});
     };
   }, [active, sourceUrl, attempt, viewId]);
 
@@ -179,6 +200,7 @@ export default function HotPageView({ url, active, onClose, onStateChange, viewI
           {onClose && <button type="button" title={t("common.close")} aria-label={t("common.close")} disabled={!active} onClick={onClose}><Icon name="x" size={15}/></button>}
         </div>
       </div>
+      {recreated && <div className="reader-cache-notice" role="status">网页缓存已释放，已按最近网址重新加载。</div>}
       {current && (current.error || current.downloadUrl) && <div className="reader-web-notice" role={current.error ? "alert" : "status"}>
         <span>{t(current.error === "create" ? "reader.webviewUnavailable" : current.error === "control" ? "reader.webControlUnavailable" : "reader.webDownloadHint")}</span>
         {current.error ? <button type="button" disabled={!active} onClick={retry}>{t("reader.retryWebpage")}</button> : <button type="button" disabled={!active} onClick={() => externalOpen(current.downloadUrl)}>{t("reader.webOpenDownload")}</button>}

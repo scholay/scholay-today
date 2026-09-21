@@ -1,11 +1,11 @@
 import { fitPaneWidths, MIN_READER_PANE, type PaneWidthBounds, type PaneWidths } from "./paneGeometry";
 
-export type BoardWorkspace = "hotboard" | "labels" | "calendar";
+export type BoardWorkspace = "hotboard" | "labels" | "calendar" | "files";
 export interface BoardPanePreference { sidebarWidth: number; listWidth: number }
 export const BOARD_PANE_BOUNDS: PaneWidthBounds = { sidebar: { min: 200, max: 420 }, list: { min: 280, max: 560 } };
 export const boardPaneKey = (workspace: BoardWorkspace) => `scholay.${workspace}.panes.v1`;
 export function parseBoardPanes(raw: string | null, workspace: BoardWorkspace): BoardPanePreference {
-  const fallback = { sidebarWidth: 248, listWidth: workspace === "labels" ? 370 : 360 };
+  const fallback = { sidebarWidth: workspace === "files" ? 220 : 248, listWidth: workspace === "labels" ? 370 : workspace === "files" ? 300 : 360 };
   try {
     const value = JSON.parse(raw ?? "null");
     const valid = (n: unknown, min: number, max: number, fallback: number) => typeof n === "number" && Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback;

@@ -90,7 +90,8 @@ describe("shared workspace frame with independent RSS and hot content", () => {
     expect(board).toContain("enabled: active");
     expect(board).toContain("getHotSnapshot(source.id, false, signal)");
     expect(board).toContain('cached.stale || cached.status === "never"');
-    expect(board).not.toMatch(/api\.addFeed|api\.getArticle|api\.ai|personal_mail_|useUi/);
+    expect(board).not.toMatch(/api\.addFeed|api\.getArticle|api\.ai|personal_mail_|selectedArticleId|markRead/);
+    expect(board).toContain("state.modalOpen || state.menuOpen || state.aiOpen");
     expect(api).toContain("createHotRequestQueue(4)");
     expect(api).not.toMatch(/localStorage|console\./);
     const auth = read("hot/SourceAuthorization.tsx");
