@@ -16,7 +16,9 @@ export function useBoardPanes(workspace: BoardWorkspace, hasList: boolean, activ
     const host = hostRef.current;
     if (!host) return;
     const measure = () => {
-      const width = host.getBoundingClientRect().width;
+      // Pane variables are CSS layout pixels. A bounding rect includes the
+      // application zoom and would apply that scale a second time to columns.
+      const width = host.clientWidth || host.getBoundingClientRect().width;
       if (width > 0) setViewport(width);
     };
     measure();

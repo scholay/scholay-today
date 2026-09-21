@@ -122,13 +122,17 @@ export default function HotPageView({ url, active, onClose, onStateChange, viewI
         unlisten = removeListener;
         armWaitTimer();
         const saved = persistent ? useReadingGroups.getState().tabs.find(tab => tab.id === viewId)?.reading : undefined;
-        const reused = await api.openPageView(sourceUrl, bounds(), requestId, !overlayRef.current, viewId, saved);
+        // Creation can outlast a pane drag. Keep the native surface hidden
+        // until its rectangle has caught up with the current layout.
+        const reused = await api.openPageView(sourceUrl, bounds(), requestId, false, viewId, saved);
         if (!cancelled) setRecreated(!reused && Boolean(saved?.webUrl));
         open = true;
         if (cancelled || !activeRef.current) {
           await suspend().catch(() => {});
           return;
         }
+        await api.setPageViewBounds(bounds(), viewId, requestId);
+        if (cancelled || !activeRef.current) { await suspend(); return; }
         // A fast loaded event may precede the open response. Creation must not
         // put an already-loaded page back into a permanent loading state.
         setState((value) => updateHotPageView(value, requestId, { created: true }));

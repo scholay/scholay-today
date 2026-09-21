@@ -298,3 +298,29 @@ it("a slow hot open followed by close/reopen cannot close the replacement or res
   expect(current).not.toBe(old); expect(native.has(old)).toBe(false); expect(native.has(current)).toBe(true);
   expect(useReadingGroups.getState().tabs).toHaveLength(1);
 });
+
+it("fits a slow hot native open to the resized list boundary before showing it", async () => {
+  let release!: () => void;
+  const pending = new Promise<void>(resolve => { release = resolve; });
+  let left = 500;
+  const measure = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(() =>
+    ({ x: left, y: 120, left, top: 120, right: 1200, bottom: 800, width: 1200 - left, height: 680, toJSON() {} }));
+  const normal = vi.mocked(invoke).getMockImplementation()!;
+  vi.mocked(invoke).mockImplementation(async (command, args, options) => {
+    if (command === "open_page_view") await pending;
+    return normal(command, args, options);
+  });
+  try {
+    await act(() => root.render(createElement(HotPageView, { active: true, url: "https://example.invalid/hot" })));
+    expect(commands("open_page_view")[0]?.[1]).toMatchObject({ x: 500, visible: false });
+    left = 750; // List grew while native creation was awaiting its response.
+    await act(async () => { release(); await enqueuePageView(() => {}); });
+    await settle();
+    expect(commands("set_page_view_bounds").at(-1)?.[1]).toMatchObject({ x: 750, width: 450 });
+    const calls = vi.mocked(invoke).mock.calls;
+    const fit = calls.findIndex(([command]) => command === "set_page_view_bounds");
+    const show = calls.findIndex(([command, args]) => command === "set_page_view_visible" && (args as any).visible);
+    expect(fit).toBeGreaterThan(-1);
+    expect(show).toBeGreaterThan(fit);
+  } finally { release(); measure.mockRestore(); }
+});

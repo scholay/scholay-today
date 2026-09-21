@@ -43,6 +43,17 @@ afterEach(() => {
 });
 
 describe("board pane drag, keyboard and persistence", () => {
+  it("fits columns to layout pixels when application zoom scales the screen rectangle", () => {
+    const logicalWidth = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(800);
+    width = 1000; // 125% UI scale
+    render();
+    expect(current() + current(1)).toBeLessThanOrEqual(480);
+    logicalWidth.mockReturnValue(1440);
+    resize(1800);
+    expect(current()).toBe(248);
+    expect(current(1)).toBe(360);
+    expect(localStorage.getItem(boardPaneKey("hotboard"))).toBeNull();
+  });
   it("drags the sidebar and adjusts the list using the existing keyboard interaction", () => {
     render();
     act(() => handles()[0].dispatchEvent(new MouseEvent("pointerdown", { button: 0, clientX: 248, bubbles: true })));
