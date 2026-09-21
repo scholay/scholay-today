@@ -69,7 +69,7 @@ describe("shared workspace frame with independent RSS and hot content", () => {
     expect(app).toContain("setModalOpen(settings.open || (active &&");
     expect(app).toContain('listen("tray-open-settings", open)');
     expect(app).toContain("papr-open-settings");
-    expect(app).toContain('<Reader onToast={showToast} active={active}');
+    expect(app).toContain('<ReaderWorkspace onToast={showToast} active={active}');
     expect(app).toContain('<ArticleList onToast={showToast} />');
     expect(read("components/WorkspaceSwitcher.tsx")).toContain("disabled={captureBusy}");
   });

@@ -8,6 +8,9 @@ import WorkspaceSwitcher, { isCalendarWorkspace, isTrendsWorkspace, parseWorkspa
 import { saveTrendsSection } from "./hot/trendsSection";
 import { stepUiScale } from "./lib/uiScale";
 import { useUi } from "./store";
+import { listen } from "@tauri-apps/api/event";
+import { invoke } from "@tauri-apps/api/core";
+import { hasBlockingOverlay, useBlockingOverlay } from "./lib/useBlockingOverlay";
 import "./workspace.css";
 
 const WORKSPACE_KEY = "papr.workspace.v2";
@@ -30,6 +33,9 @@ export default function WorkspaceApp() {
   const [hotVisited, setHotVisited] = useState(isTrendsWorkspace(workspace));
   const [calendarVisited, setCalendarVisited] = useState(isCalendarWorkspace(workspace));
   const [captureBusy, setCaptureBusy] = useState(false);
+  const modalOpen = useUi(s => s.modalOpen);
+  const menuOpen = useUi(s => s.menuOpen);
+  const blockingOverlay = useBlockingOverlay();
   const [hotQueries] = useState(() => new QueryClient({ defaultOptions: { queries: { retry: 0, refetchOnWindowFocus: false, staleTime: Infinity } } }));
   const trendsOpen = isTrendsWorkspace(workspace);
   const calendarOpen = isCalendarWorkspace(workspace);
@@ -48,8 +54,17 @@ export default function WorkspaceApp() {
     try { localStorage.setItem(WORKSPACE_KEY, workspace); } catch { /* Optional preference only. */ }
   }, [workspace]);
   useEffect(() => {
+    const enabled = !captureBusy && !modalOpen && !menuOpen && !blockingOverlay;
+    void invoke("set_workspace_shortcuts", { enabled }).catch(() => {});
+    const pending = listen<string>("workspace-shortcut", event => {
+      const next = WORKSPACE_CHOICES[Number(event.payload) - 1];
+      if (enabled && !hasBlockingOverlay() && next) chooseWorkspace(next.value);
+    });
+    return () => { void pending.then(stop => stop()).catch(() => {}); };
+  }, [captureBusy, modalOpen, menuOpen, blockingOverlay, chooseWorkspace]);
+  useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey || event.isComposing || captureBusy) return;
+      if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey || event.isComposing || captureBusy || modalOpen || menuOpen || hasBlockingOverlay()) return;
       const next = WORKSPACE_CHOICES[Number(event.key) - 1];
       if (next) {
         event.preventDefault();
@@ -73,7 +88,7 @@ export default function WorkspaceApp() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [captureBusy, chooseWorkspace]);
+  }, [captureBusy, modalOpen, menuOpen, chooseWorkspace]);
 
   return <div className="workspace-host">
     <WorkspaceSwitcher workspace={workspace} captureBusy={captureBusy} onChange={chooseWorkspace} onOpenSettings={requestOpenSettings}/>

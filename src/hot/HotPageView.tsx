@@ -9,11 +9,13 @@ import WebZoomControls from "../components/WebZoomControls";
 import { enqueuePageView, nextPageViewRequestId } from "../lib/pageViewQueue";
 import { isPageViewStatusEvent, safePageViewUrl, type PageViewAction } from "../lib/pageViewState";
 import { reportError } from "../toast";
+import { useBlockingOverlay } from "../lib/useBlockingOverlay";
 import { applyHotPageViewStatus, createHotPageViewState, hotPageViewForUrl, updateHotPageView, waitForHotPageView, type HotPageViewState } from "./hotPageViewState";
 import "../components/reader-web-controls.css";
 import "./hot-page-view.css";
 
 export interface HotPageViewProps {
+  viewId?: "page-view" | "labels-page";
   url: string;
   active: boolean;
   onClose?: () => void;
@@ -22,7 +24,7 @@ export interface HotPageViewProps {
 
 /** An independent source-page viewer. It neither selects an RSS article nor
  * starts extraction, translation, capture, or an AI request. */
-export default function HotPageView({ url, active, onClose, onStateChange }: HotPageViewProps) {
+export default function HotPageView({ url, active, onClose, onStateChange, viewId = "page-view" }: HotPageViewProps) {
   const { t } = useTranslation();
   const sourceUrl = safePageViewUrl(url);
   const [state, setState] = useState<HotPageViewState | null>(null);
@@ -30,6 +32,9 @@ export default function HotPageView({ url, active, onClose, onStateChange }: Hot
   const hostRef = useRef<HTMLDivElement>(null);
   const activeRef = useRef(active);
   activeRef.current = active;
+  const overlay = useBlockingOverlay();
+  const overlayRef = useRef(overlay);
+  overlayRef.current = overlay;
   const controllerRef = useRef<{ requestId: string; run: (action: PageViewAction) => void } | null>(null);
   const current = hotPageViewForUrl(state, sourceUrl);
   const externalUrl = safePageViewUrl(current?.currentUrl ?? sourceUrl);
@@ -71,8 +76,8 @@ export default function HotPageView({ url, active, onClose, onStateChange }: Hot
         void enqueuePageView(async () => {
           if (cancelled || !activeRef.current || !open) return;
           try {
-            if (action === "reload") await api.reloadPageView();
-            else await api.navigatePageViewHistory(action);
+            if (action === "reload") await api.reloadPageView(viewId, requestId);
+            else await api.navigatePageViewHistory(action, viewId, requestId);
           } catch {
             if (!cancelled && activeRef.current) {
               clearWaitTimer();
@@ -99,10 +104,10 @@ export default function HotPageView({ url, active, onClose, onStateChange }: Hot
         if (cancelled || !activeRef.current) { removeListener(); return; }
         unlisten = removeListener;
         armWaitTimer();
-        await api.openPageView(sourceUrl, bounds(), requestId);
+        await api.openPageView(sourceUrl, bounds(), requestId, !overlayRef.current, viewId);
         open = true;
         if (cancelled || !activeRef.current) {
-          await api.closePageView().catch(() => {});
+          await api.closePageView(viewId, requestId).catch(() => {});
           return;
         }
         // A fast loaded event may precede the open response. Creation must not
@@ -115,14 +120,14 @@ export default function HotPageView({ url, active, onClose, onStateChange }: Hot
         if (!cancelled && activeRef.current) {
           setState((value) => updateHotPageView(value, requestId, { created: false, loading: false, waiting: false, error: "create" }));
         }
-        await api.closePageView().catch(() => {});
+        await api.closePageView(viewId, requestId).catch(() => {});
       }
     });
 
     const sync = () => {
       if (!open || cancelled || !activeRef.current) return;
       void enqueuePageView(async () => {
-        if (open && !cancelled && activeRef.current) await api.setPageViewBounds(bounds());
+        if (open && !cancelled && activeRef.current) await api.setPageViewBounds(bounds(), viewId, requestId);
       }).catch(() => {});
     };
     const observer = new ResizeObserver(sync);
@@ -136,9 +141,17 @@ export default function HotPageView({ url, active, onClose, onStateChange }: Hot
       if (controllerRef.current?.requestId === requestId) controllerRef.current = null;
       observer.disconnect();
       window.removeEventListener("resize", sync);
-      void enqueuePageView(() => api.closePageView()).catch(() => {});
+      void enqueuePageView(() => api.closePageView(viewId, requestId)).catch(() => {});
     };
-  }, [active, sourceUrl, attempt]);
+  }, [active, sourceUrl, attempt, viewId]);
+
+  useEffect(() => {
+    const controller = controllerRef.current;
+    if (!active || !current?.created || !controller) return;
+    void enqueuePageView(async () => {
+      if (activeRef.current && controllerRef.current === controller) await api.setPageViewVisible(!overlayRef.current, viewId, controller.requestId);
+    }).catch(() => {});
+  }, [active, current?.created, current?.requestId, overlay, viewId]);
 
   const run = (action: PageViewAction) => {
     if (activeRef.current) controllerRef.current?.run(action);
@@ -158,7 +171,7 @@ export default function HotPageView({ url, active, onClose, onStateChange }: Hot
           <button type="button" title={t("reader.webReload")} aria-label={t("reader.webReload")} disabled={!active || !sourceUrl || (!current?.created && !!current?.loading && !current.waiting)} onClick={() => current?.created ? run("reload") : retry()}><Icon name="refresh" size={14}/></button>
         </div>
         <span className="reader-webview-url" title={externalUrl ?? undefined}>{externalUrl ?? t("reader.webUnsafeUrl")}</span>
-        <WebZoomControls disabled={!active} requestId={current?.requestId}/>
+        <WebZoomControls disabled={!active} requestId={current?.requestId} viewId={viewId}/>
         <WebThemeToggle disabled={!active}/>
         {current?.loading && <span className="reader-web-loading" role="status" title={current.waiting ? t("reader.webWaitingHint") : t("common.loading")} aria-label={current.waiting ? t("reader.webWaitingShort") : t("common.loading")}><span className="reader-web-spinner" aria-hidden="true"/>{current.waiting && <span>{t("reader.webWaitingShort")}</span>}</span>}
         <div className="reader-web-navigation">

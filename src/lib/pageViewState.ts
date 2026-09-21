@@ -1,11 +1,14 @@
 export type PageViewPhase = "loading" | "loaded" | "blocked" | "download";
 export interface PageViewStatusEvent {
+  viewId?: string;
+  instance?: number;
   requestId: string;
   url: string;
   phase: PageViewPhase;
 }
 export type PageViewAction = "back" | "forward" | "reload";
 export interface PageViewState {
+  instance?: number;
   requestId: string;
   articleId: number;
   originalUrl: string;
@@ -84,6 +87,7 @@ export function isPageViewStatusEvent(value: unknown): value is PageViewStatusEv
 
 export function applyPageViewStatus(state: PageViewState | null, event: unknown): PageViewState | null {
   if (!state || !isPageViewStatusEvent(event) || state.requestId !== event.requestId) return state;
+  if (event.instance !== undefined && state.instance !== undefined && event.instance < state.instance) return state;
   // Native security still rejects the request. Subframes/custom schemes are
   // routine browser noise, not a visible warning or a failed main page.
   if (event.phase === "blocked") return state;
@@ -95,7 +99,7 @@ export function applyPageViewStatus(state: PageViewState | null, event: unknown)
   const currentUrl = safePageViewUrl(event.url);
   if (!currentUrl) return state;
   return {
-    ...state, currentUrl, loading: event.phase === "loading", waiting: false, error: null,
+    ...state, instance: event.instance ?? state.instance, currentUrl, loading: event.phase === "loading", waiting: false, error: null,
     notice: null, noticeUrl: null,
   };
 }

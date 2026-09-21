@@ -28,6 +28,11 @@ tauri-build = { version = "2", features = [] }
 [features]
 # Synthetic WebView2 fixture executable only; not enabled in shipped builds.
 windows-smoke = []
+reader-tabs-smoke = []
+
+[[example]]
+name = "reader-tabs-smoke"
+required-features = ["reader-tabs-smoke"]
 
 [[example]]
 name = "windows-smoke"

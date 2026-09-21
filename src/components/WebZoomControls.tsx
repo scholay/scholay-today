@@ -5,11 +5,12 @@ import * as api from "../api";
 import { enqueuePageView } from "../lib/pageViewQueue";
 import { formatPageZoom, isPageViewZoomEvent, type PageZoomAction, type PageViewZoomEvent } from "../lib/pageViewZoom";
 import Icon from "./Icon";
+import { acceptReaderPageEvent } from "../lib/readerPageSession";
 
 const initialZoom = { requestId: "", factor: 1, mode: "fit" as const };
 
 /** Fit-to-pane plus explicit zoom. Native child pages have no IPC hotkeys. */
-export default function WebZoomControls({ disabled = false, requestId }: { disabled?: boolean; requestId?: string }) {
+export default function WebZoomControls({ disabled = false, requestId, viewId }: { disabled?: boolean; requestId?: string; viewId?: string }) {
   const { t } = useTranslation();
   const [zoom, setZoom] = useState<PageViewZoomEvent>(initialZoom);
 
@@ -19,18 +20,19 @@ export default function WebZoomControls({ disabled = false, requestId }: { disab
     let cancelled = false;
     const unlisten = listen("page-view-zoom", ({ payload }) => {
       if (cancelled || !isPageViewZoomEvent(payload) || payload.requestId !== requestId) return;
+      if (viewId?.startsWith("rss-") && !acceptReaderPageEvent(payload)) return;
       setZoom(payload);
     });
     return () => {
       cancelled = true;
       void unlisten.then((stop) => stop());
     };
-  }, [requestId]);
+  }, [requestId, viewId]);
 
   const run = (action: PageZoomAction) => {
     if (disabled || !requestId) return;
     void enqueuePageView(async () => {
-      const next = await api.setPageViewZoom(action);
+      const next = await api.setPageViewZoom(action, viewId, requestId);
       if (isPageViewZoomEvent(next) && next.requestId === requestId) setZoom(next);
     }).catch(() => {});
   };

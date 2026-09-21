@@ -1,5 +1,5 @@
-/** There is one native child webview for the entire application. RSS and Hot
- * must share this queue: an old owner's close must finish before the next open.
+/** Native instances are retained, but only one content page can be visible.
+ * RSS and workspace viewers share this queue for deterministic hide/open/close.
  * A rejected task is still returned to its caller, but never poisons the tail. */
 export function createPageViewQueue() {
   let tail: Promise<void> = Promise.resolve();

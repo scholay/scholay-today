@@ -1,4 +1,5 @@
 {
+  "readerTabs": { "label": "閲覧タブ", "close": "タブを閉じる", "closeOthers": "他のタブを閉じる", "closeRight": "右側のタブを閉じる", "closeAll": "すべてのタブを閉じる", "allTabs": "開いているタブ", "reloaded": "このページのキャッシュが解放されたため、再読み込みしています。" },
   "common": {
     "cancel": "キャンセル",
     "confirm": "OK",
@@ -660,6 +661,7 @@
     "toastTagDeleted": "タグを削除しました"
   },
   "error": {
+    "articleNotFound": "この記事は利用できなくなりました。",
     "db": "データベースエラー：{{detail}}",
     "migration": "データベースの移行に失敗しました：{{detail}}",
     "network": "ネットワークエラー：{{detail}}",

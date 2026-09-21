@@ -33,7 +33,11 @@ mod label_collector;
 mod hot_sources;
 mod notify;
 mod page_view;
+#[cfg(feature = "reader-tabs-smoke")]
+pub use page_view::smoke::run as run_reader_tabs_smoke;
 mod page_theme;
+mod reader_shortcuts;
+fn app_context() -> tauri::Context<tauri::Wry> { tauri::generate_context!() }
 // The tauri-coupled refresh scheduler (progress channels, AppHandle) — built on
 // top of `papr_core::ingestion`. Was `ingestion::scheduler` before the split.
 mod scheduler;
@@ -104,6 +108,7 @@ pub fn run() {
 
     builder
         .setup(|app| {
+            reader_shortcuts::install(app.handle())?;
             // ── Database ──────────────────────────────────────────────
             let data_dir = app.path().app_data_dir().expect("resolve app data dir");
             fs::create_dir_all(&data_dir).ok();
@@ -298,6 +303,8 @@ pub fn run() {
             commands::list_articles,
             commands::article_index,
             commands::get_article,
+            reader_shortcuts::set_reader_shortcuts,
+            reader_shortcuts::set_workspace_shortcuts,
             commands::mark_read,
             commands::mark_starred,
             commands::mark_read_later,
@@ -374,6 +381,6 @@ pub fn run() {
             page_view::set_page_view_zoom,
             page_view::set_page_view_theme,
         ])
-        .run(tauri::generate_context!())
+        .run(app_context())
         .expect("error while running scholay today");
 }

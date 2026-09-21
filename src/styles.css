@@ -1487,7 +1487,7 @@ button { font-family: inherit; }
    user's scroll position (issue #86). Keeping the sidebar + list mounted and
    measured underneath means exiting restores their exact prior state for free —
    the reader simply uncovers them. */
-.window.focus .reader {
+.window.focus .reader-workspace {
   position: absolute;
   inset: 0;
   z-index: 20;

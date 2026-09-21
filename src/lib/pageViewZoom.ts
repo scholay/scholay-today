@@ -1,6 +1,8 @@
 export type PageZoomMode = "fit" | "manual";
 
 export interface PageViewZoomEvent {
+  viewId?: string;
+  instance?: number;
   requestId: string;
   factor: number;
   mode: PageZoomMode;
