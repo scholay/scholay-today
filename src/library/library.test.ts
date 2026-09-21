@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import type { Folder, StructuredListItem } from "../types";
-import { cleanedCountForFolder, docsInScope, matchesLibraryQuery } from "./helpers";
+import { cleanedCountForFolder, docsInScope, matchesLibraryQuery, populatedFolders } from "./helpers";
 
 const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 const folders: Folder[] = [
@@ -23,21 +23,27 @@ describe("cleaned library scopes", () => {
     expect(matchesLibraryQuery(docs[0], "甲")).toBe(true);
     expect(matchesLibraryQuery(docs[0], "zzz")).toBe(false);
   });
+  it("only exposes nonempty branches, including ancestors of populated children", () => {
+    const tree = [...folders, { id: 3, name: "Empty", position: 1, parentId: 1 }];
+    expect(populatedFolders([docs[1]], tree).map(f => f.id)).toEqual([1, 2]);
+    expect(populatedFolders([], tree)).toEqual([]);
+    expect(populatedFolders([docs[2]], tree)).toEqual([]);
+    expect(docsInScope(docs, tree, "examples")).toEqual([]);
+  });
 });
 
 describe("files workspace", () => {
-  it("keeps the cleaned tree off the RSS pane and renders stored Markdown", () => {
+  it("retires the separate library workspace in favor of RSS Agented", () => {
     const shell = read("WorkspaceApp.tsx");
     const switcher = read("components/WorkspaceSwitcher.tsx");
     expect(switcher).not.toContain('value: "home"');
-    expect(switcher).toContain('value: "files"');
+    expect(switcher).not.toContain('value: "files"');
     expect(switcher).toContain('value: "rss"');
     expect(switcher).toContain('icon: "logo"');
-    expect(switcher).toContain('icon: "file"');
     expect(switcher).toContain("workspace-rail-settings");
     expect(shell).not.toContain("HomeBoard");
-    expect(shell).toContain("<FilesBoard");
-    expect(shell).toContain('id="workspace-files-panel"');
+    expect(shell).not.toContain("<FilesBoard");
+    expect(shell).not.toContain('id="workspace-files-panel"');
     expect(shell).toContain('<App active={workspace === "rss"}');
     expect(read("library/FilesBoard.tsx")).toContain("listStructuredDocuments");
     expect(read("library/FilesBoard.tsx")).toContain("<StructuredReader");

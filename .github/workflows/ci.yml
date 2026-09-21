@@ -40,10 +40,15 @@ jobs:
       - run: pnpm prepare:mcp
       - run: node scripts/prepare-public-bridge.mjs
       - run: cargo test --workspace --locked
+        id: rust_tests
       - name: Reversible theme in real WKWebView / WebView2
+        if: ${{ !cancelled() && steps.rust_tests.outcome == 'success' }}
         run: cargo run --locked -p papr --example page-theme-smoke
+      - name: Reading tab cache in real WKWebView / WebView2
+        if: ${{ !cancelled() && steps.rust_tests.outcome == 'success' }}
+        run: cargo run --locked -p papr --features reader-tabs-smoke --example reader-tabs-smoke
       - name: Real WebView2 capture and image-export fixture
-        if: runner.os == 'Windows'
+        if: ${{ !cancelled() && runner.os == 'Windows' && steps.rust_tests.outcome == 'success' }}
         run: cargo run --locked -p papr --features windows-smoke --example windows-smoke
       - run: pnpm build:desktop
       - name: Stage Windows installer

@@ -29,6 +29,15 @@ describe("structured cleaning IPC", () => {
 });
 
 describe("structured Markdown body", () => {
+  it("retains an ordered list's starting number through sanitization", () => {
+    const dom = new JSDOM();
+    vi.stubGlobal("DOMParser", dom.window.DOMParser);
+    try {
+      const rendered = new JSDOM(renderMarkdown("3. First step\n4. Next step"));
+      expect(rendered.window.document.querySelector("ol")?.getAttribute("start")).toBe("3");
+      expect(rendered.window.document.querySelectorAll("li")).toHaveLength(2);
+    } finally { vi.unstubAllGlobals(); }
+  });
   it("sanitizes the stored Markdown and keeps images as verified references", () => {
     const dom = new JSDOM();
     vi.stubGlobal("DOMParser", dom.window.DOMParser);

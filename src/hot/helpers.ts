@@ -6,7 +6,7 @@ export const HOT_FILTERS: { id: HotFilter; label: string }[] = [
   { id: "all", label: "全部" }, { id: "china", label: "国内" }, { id: "global", label: "海外" },
   { id: "tech", label: "科技" }, { id: "finance", label: "财经" }, { id: "life", label: "生活" },
 ];
-export const DEFAULT_HOT_UI: HotUiState = { filter: "all", favorites: [], favoritesOnly: false, paused: false, cardLimit: 5, sourceId: null, itemId: null, view: "overview", search: "" };
+export const DEFAULT_HOT_UI: HotUiState = { filter: "all", favorites: [], favoritesOnly: false, paused: false, cardLimit: 5, sourceId: null, itemId: null, view: "overview", search: "", readerHidden: false };
 
 export function parseHotUi(raw: string | null): HotUiState {
   try {
@@ -21,6 +21,7 @@ export function parseHotUi(raw: string | null): HotUiState {
       sourceId: typeof value.sourceId === "string" ? value.sourceId : null,
       itemId: typeof value.itemId === "string" ? value.itemId : null,
       view: value.view === "source" ? "source" : "overview",
+      readerHidden: value.readerHidden === true,
       search: typeof value.search === "string" ? value.search.slice(0, 300) : "",
     };
   } catch { return { ...DEFAULT_HOT_UI, favorites: [] }; }

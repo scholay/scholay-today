@@ -369,7 +369,10 @@ pub async fn article_index(
 #[tauri::command]
 pub async fn get_article(state: State<'_, AppState>, id: i64) -> AppResult<ArticleDetail> {
     let conn = state.read().await;
-    db::get_article(&conn, id)
+    db::get_article(&conn, id).map_err(|error| match error {
+        AppError::Db(rusqlite::Error::QueryReturnedNoRows) => AppError::code("articleNotFound"),
+        other => other,
+    })
 }
 
 /// Queue a read/starred change for FreshRSS, but only when a server is linked.
@@ -431,6 +434,7 @@ pub struct SmartCounts {
     unread: i64,
     starred: i64,
     read_later: i64,
+    agented: i64,
 }
 
 #[tauri::command]
@@ -441,6 +445,7 @@ pub async fn smart_counts(state: State<'_, AppState>) -> AppResult<SmartCounts> 
         unread,
         starred,
         read_later,
+        agented: db::agented_count(&conn)?,
     })
 }
 

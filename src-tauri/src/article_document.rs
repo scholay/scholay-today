@@ -3,6 +3,8 @@ use ego_tree::NodeRef;
 use scraper::{ElementRef, Html, Node, Selector};
 use serde::{Deserialize, Serialize};
 
+pub const DOCUMENT_SCHEMA_VERSION: u32 = 2;
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Block {
@@ -13,6 +15,12 @@ pub struct Block {
     pub level: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub asset_id: Option<String>,
+    /// Markdown container prefixes keep lists/quotes around every child block,
+    /// including images. Old captures deserialize with no container metadata.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prefix: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub continuation_prefix: Option<String>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -72,8 +80,32 @@ fn push(doc: &mut Document, kind: &str, buffer: &mut String, level: Option<usize
             markdown: value,
             level,
             asset_id: None,
+            prefix: None,
+            continuation_prefix: None,
         });
     }
+}
+
+fn container_prefix(doc: &mut Document, start: usize, first: &str, rest: &str) {
+    for (index, block) in doc.blocks[start..].iter_mut().enumerate() {
+        block.prefix = Some(format!("{}{}", if index == 0 { first } else { rest }, block.prefix.as_deref().unwrap_or("")));
+        block.continuation_prefix = Some(format!("{rest}{}", block.continuation_prefix.as_deref().unwrap_or("")));
+    }
+}
+
+fn list_marker(node: NodeRef<'_, Node>) -> String {
+    let Some(parent) = node.parent().and_then(ElementRef::wrap) else { return "- ".into() };
+    if parent.value().name() != "ol" { return "- ".into(); }
+    let reversed = parent.value().attr("reversed").is_some();
+    let mut number = parent.value().attr("start").and_then(|s| s.parse::<i64>().ok()).unwrap_or_else(|| {
+        if reversed { parent.children().filter_map(ElementRef::wrap).filter(|e| e.value().name() == "li").count() as i64 } else { 1 }
+    });
+    for sibling in parent.children().filter_map(ElementRef::wrap).filter(|e| e.value().name() == "li") {
+        if let Some(value) = sibling.value().attr("value").and_then(|s| s.parse::<i64>().ok()) { number = value; }
+        if sibling.id() == node.id() { break; }
+        number = number.saturating_add(if reversed { -1 } else { 1 });
+    }
+    format!("{number}. ")
 }
 
 fn walk(node: NodeRef<'_, Node>, doc: &mut Document, buffer: &mut String, depth: usize) {
@@ -114,7 +146,28 @@ fn walk(node: NodeRef<'_, Node>, doc: &mut Document, buffer: &mut String, depth:
                     | "footer"
             ) || el.attr("hidden").is_some()
                 || el.attr("aria-hidden") == Some("true")
+                || el.attr("role").is_some_and(|role| matches!(role, "navigation" | "banner" | "complementary"))
+                || el.attr("style").is_some_and(|style| style.split(';').any(|rule| {
+                    rule.split_once(':').is_some_and(|(key, value)| {
+                        let value = value.trim().trim_end_matches("!important").trim();
+                        (key.trim().eq_ignore_ascii_case("display") && value.eq_ignore_ascii_case("none"))
+                            || (key.trim().eq_ignore_ascii_case("visibility") && value.eq_ignore_ascii_case("hidden"))
+                    })
+                }))
             {
+                return;
+            }
+            if tag == "li" || tag == "blockquote" {
+                push(doc, "paragraph", buffer, None);
+                let start = doc.blocks.len();
+                for child in node.children() { walk(child, doc, buffer, depth + 1); }
+                push(doc, "paragraph", buffer, None);
+                if tag == "blockquote" {
+                    container_prefix(doc, start, "> ", "> ");
+                } else {
+                    let marker = list_marker(node);
+                    container_prefix(doc, start, &marker, &" ".repeat(marker.len()));
+                }
                 return;
             }
             if tag == "img" {
@@ -156,6 +209,8 @@ fn walk(node: NodeRef<'_, Node>, doc: &mut Document, buffer: &mut String, depth:
                         markdown: escape(&alt),
                         level: None,
                         asset_id: Some(id),
+                        prefix: None,
+                        continuation_prefix: None,
                     });
                 }
                 return;
@@ -163,6 +218,9 @@ fn walk(node: NodeRef<'_, Node>, doc: &mut Document, buffer: &mut String, depth:
             if tag == "table" {
                 push(doc, "paragraph", buffer, None);
                 if let Some(e) = ElementRef::wrap(node) {
+                    if e.select(&Selector::parse("[colspan], [rowspan], table").unwrap()).any(|cell| cell.id() != e.id()) {
+                        doc.warnings.push("表格含合并单元格或嵌套表格；Markdown 无法完整表达原布局，请对照原文核查。".into());
+                    }
                     let mut rows = vec![];
                     for row in e.select(&Selector::parse("tr").unwrap()) {
                         let cells = row
@@ -201,6 +259,11 @@ fn walk(node: NodeRef<'_, Node>, doc: &mut Document, buffer: &mut String, depth:
                 push(doc, "paragraph", buffer, None);
                 if let Some(e) = ElementRef::wrap(node) {
                     let text = e.text().collect::<String>();
+                    let language = e.select(&Selector::parse("code").unwrap()).next()
+                        .and_then(|code| code.value().attr("class"))
+                        .and_then(|class| class.split_whitespace().find_map(|name| name.strip_prefix("language-")))
+                        .filter(|name| name.len() <= 40 && name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '+')))
+                        .unwrap_or("");
                     let fence = "`".repeat(
                         text.split(|c| c != '`')
                             .map(str::len)
@@ -209,13 +272,22 @@ fn walk(node: NodeRef<'_, Node>, doc: &mut Document, buffer: &mut String, depth:
                             .max(2)
                             + 1,
                     );
-                    buffer.push_str(&format!("{fence}\n{text}\n{fence}"));
+                    buffer.push_str(&format!("{fence}{language}\n{text}\n{fence}"));
                     push(doc, "code", buffer, None);
                 }
                 return;
             }
             if tag == "br" {
                 buffer.push_str("  \n");
+                return;
+            }
+            if tag == "code" {
+                if let Some(e) = ElementRef::wrap(node) {
+                    let text = e.text().collect::<String>().replace(['\r', '\n'], " ");
+                    let fence = "`".repeat(text.split(|c| c != '`').map(str::len).max().unwrap_or(0) + 1);
+                    let padding = if text.starts_with('`') || text.ends_with('`') || (text.starts_with(' ') && text.ends_with(' ')) { " " } else { "" };
+                    buffer.push_str(&format!("{fence}{padding}{text}{padding}{fence}"));
+                }
                 return;
             }
             let heading = tag
@@ -317,6 +389,7 @@ fn walk(node: NodeRef<'_, Node>, doc: &mut Document, buffer: &mut String, depth:
     }
 }
 pub fn parse(mut doc: Document, html: &str) -> Document {
+    doc.schema_version = DOCUMENT_SCHEMA_VERSION;
     let html = Html::parse_fragment(html);
     let mut buffer = String::new();
     walk(html.tree.root(), &mut doc, &mut buffer, 0);
@@ -328,8 +401,8 @@ fn blocks_markdown(doc: &Document, image: impl Fn(&Asset) -> String) -> String {
     for b in &doc.blocks {
         let body = match b.kind.as_str() {
             "heading" => format!("{} {}", "#".repeat(b.level.unwrap_or(2)), b.markdown),
-            "list_item" => format!("- {}", b.markdown),
-            "quote" => format!("> {}", b.markdown),
+            "list_item" if b.prefix.is_none() => format!("- {}", b.markdown),
+            "quote" if b.prefix.is_none() => format!("> {}", b.markdown.replace('\n', "\n> ")),
             "image" => doc
                 .assets
                 .iter()
@@ -338,8 +411,22 @@ fn blocks_markdown(doc: &Document, image: impl Fn(&Asset) -> String) -> String {
                 .unwrap_or_default(),
             _ => b.markdown.clone(),
         };
-        out.push_str(&body);
-        out.push_str("\n\n");
+        if let Some(prefix) = &b.prefix {
+            for (index, line) in body.lines().enumerate() {
+                if index > 0 { out.push('\n'); }
+                out.push_str(if index == 0 { prefix } else { b.continuation_prefix.as_deref().unwrap_or(prefix) });
+                out.push_str(line);
+            }
+        } else {
+            out.push_str(&body);
+        }
+        // A blank line inside a quote needs its container marker; otherwise
+        // consecutive quoted paragraphs become separate blockquotes.
+        if let Some(prefix) = b.continuation_prefix.as_deref().filter(|p| p.contains('>')) {
+            out.push_str(&format!("\n{}\n", prefix.trim_end()));
+        } else {
+            out.push_str("\n\n");
+        }
     }
     out
 }
@@ -428,5 +515,52 @@ mod tests {
             .iter()
             .any(|b| b.markdown == "[" || b.markdown.starts_with("](")));
         assert_eq!(d.assets.len(), 1);
+    }
+
+    #[test]
+    fn ordered_nested_lists_and_quotes_keep_every_child_in_its_container() {
+        let doc = parse(fixture(), "<ol start='3'><li><p>First step</p><ul><li>Nested item</li></ul><p>Continuation</p></li><li value='7'>Last step</li></ol><blockquote><p>First quote</p><p>Second quote<br>next line</p></blockquote>");
+        let md = reading_markdown(&doc);
+        assert!(md.contains("3. First step"), "{md}");
+        assert!(md.contains("   - Nested item"), "{md}");
+        assert!(md.contains("   Continuation"), "{md}");
+        assert!(md.contains("7. Last step"), "{md}");
+        assert!(md.contains("> First quote\n>\n> Second quote  \n> next line"), "{md}");
+    }
+
+    #[test]
+    fn container_images_still_use_export_asset_paths() {
+        let mut doc = parse(fixture(), "<blockquote><ul><li><p>Figure</p><img src='/a.png' alt='result'></li></ul></blockquote>");
+        doc.assets[0].path = Some("assets/image-1.png".into());
+        let md = markdown(&doc);
+        assert!(md.contains("> - Figure"), "{md}");
+        assert!(md.contains(">   ![result](assets/image-1.png)"), "{md}");
+    }
+
+    #[test]
+    fn code_keeps_literals_language_and_indentation() {
+        let doc = parse(fixture(), "<p><code>a_b &lt; x ` y</code></p><pre><code class='language-python'>if x:\n    print(`value`)\n</code></pre>");
+        let md = reading_markdown(&doc);
+        assert!(md.contains("``a_b < x ` y``"), "{md}");
+        assert!(md.contains("```python\nif x:\n    print(`value`)"), "{md}");
+    }
+
+    #[test]
+    fn hidden_noise_is_removed_but_ambiguous_layouts_get_a_warning() {
+        let doc = parse(fixture(), "<div style='display: none !important'>hidden secret</div><div role='navigation'>menu</div><p>Evidence remains</p><table><tr><td colspan='2'>Merged</td></tr><tr><td>A</td><td>B</td></tr></table>");
+        let md = reading_markdown(&doc);
+        assert!(!md.contains("hidden secret") && !md.contains("menu"));
+        assert!(md.contains("Evidence remains") && md.contains("Merged"));
+        assert!(doc.warnings.iter().any(|w| w.contains("合并单元格")));
+    }
+
+    #[test]
+    fn old_blocks_deserialize_and_repeated_prose_is_not_deleted() {
+        let old: Block = serde_json::from_str(r#"{"id":"b1","kind":"list_item","markdown":"legacy"}"#).unwrap();
+        assert!(old.prefix.is_none());
+        let mut doc = fixture(); doc.blocks.push(old);
+        assert!(reading_markdown(&doc).contains("- legacy"));
+        let doc = parse(fixture(), "<p>Repeat</p><p>Repeat</p>");
+        assert_eq!(doc.blocks.len(), 2);
     }
 }

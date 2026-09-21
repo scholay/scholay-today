@@ -20,7 +20,7 @@ import { useToasts, toast as toastApi, reportError } from "./toast";
 import type { ArticleQuery, ArticleSummary, Feed } from "./types";
 import Sidebar from "./components/Sidebar";
 import ArticleList from "./components/ArticleList";
-import Reader from "./components/Reader";
+import ReaderWorkspace from "./components/ReaderWorkspace";
 import CommandPalette, { type CommandAction } from "./components/CommandPalette";
 import SettingsDialog from "./components/SettingsDialog";
 import AddFeedDialog from "./components/AddFeedDialog";
@@ -78,8 +78,7 @@ export default function App({ active = true, onCaptureBusyChange, onRequestActiv
   // which case the OS decides.
   const effectiveMode: ResolvedMode = mode === "system" ? (systemDark ? "dark" : "light") : mode;
   useEffect(() => {
-    // Both RSS and Hot share one native child. Do not reopen it when changing
-    // theme: the fixed command removes/reapplies only our generated styles.
+    // Apply theme to resident RSS and workspace pages without reopening them.
     void enqueuePageView(() => api.setPageViewTheme(webDarkMode && effectiveMode === "dark")).catch(reportError);
   }, [effectiveMode, webDarkMode]);
   const readerFont = useUi((s) => s.readerFont);
@@ -203,7 +202,7 @@ export default function App({ active = true, onCaptureBusyChange, onRequestActiv
       all: t("smart.all"),
       unread: t("smart.unread"),
       starred: t("smart.starred"),
-      readLater: t("smart.readLater"),
+      agented: "Agented",
     };
     if (startupView !== "last" && labels[startupView]) {
       useUi
@@ -220,6 +219,7 @@ export default function App({ active = true, onCaptureBusyChange, onRequestActiv
             // active when the view was last selected — for a smart view it
             // would now be stale if the user has since changed languages, so
             // re-translate it from the current locale.
+            if (saved.query.kind === "readLater") saved.query = { kind: "all" };
             const label = labels[saved.query.kind] ?? saved.label ?? "";
             useUi.getState().select(saved.query, label);
           }
@@ -283,6 +283,8 @@ export default function App({ active = true, onCaptureBusyChange, onRequestActiv
     const un = listen("articles-cleaned", () => {
       void qc.invalidateQueries({ queryKey: ["structured"] });
       void qc.invalidateQueries({ queryKey: ["structured-documents"] });
+      void qc.invalidateQueries({ queryKey: ["articles"] });
+      void qc.invalidateQueries({ queryKey: ["counts"] });
     });
     return () => { void un.then((f) => f()); };
   }, [qc]);
@@ -502,11 +504,11 @@ export default function App({ active = true, onCaptureBusyChange, onRequestActiv
 
       const items = readCurrentItems(qc);
       const idx = items.findIndex((a) => a.id === st.selectedArticleId);
-      const sel = idx >= 0 ? items[idx] : undefined;
+      const sel = st.selectedArticleId == null ? undefined : qc.getQueryData<import("./types").ArticleDetail>(["article", st.selectedArticleId]) ?? items.find(item => item.id === st.selectedArticleId);
       const go = (delta: number) => {
         if (items.length === 0) return;
         const next = items[Math.min(items.length - 1, Math.max(0, idx + delta))];
-        if (next) st.openArticle(next.id);
+        if (next) st.openArticle(next.id, st.query.kind === "agented" ? "formatted" : undefined);
       };
 
       switch (e.key.toLowerCase()) {
@@ -520,13 +522,6 @@ export default function App({ active = true, onCaptureBusyChange, onRequestActiv
             e.preventDefault();
             actions.setStarred(sel.id, !sel.isStarred);
             showToast(sel.isStarred ? t("app.starRemoved") : t("app.starred"), "S");
-          }
-          break;
-        case "b":
-          if (sel) {
-            e.preventDefault();
-            actions.setReadLater(sel.id, !sel.readLater);
-            showToast(sel.readLater ? t("app.readLaterRemoved") : t("app.readLaterAdded"), "B");
           }
           break;
         case "u":
@@ -577,7 +572,7 @@ export default function App({ active = true, onCaptureBusyChange, onRequestActiv
             onToast={showToast}
           />
           <ArticleList onToast={showToast} />
-          <Reader onToast={showToast} active={active} onCaptureBusyChange={onCaptureBusyChange}/>
+          <ReaderWorkspace onToast={showToast} active={active} onCaptureBusyChange={onCaptureBusyChange}/>
           {/* Pane resize handles. Hidden in focus mode (the sidebar + list are
               hidden then, collapsing the grid to a single reader column). They
               sit at the column boundaries via the `left` offset below. */}

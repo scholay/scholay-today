@@ -13,6 +13,7 @@ describe("scholay today display branding with compatible local identity", () => 
     expect(APP_NAME).toBe("scholay today");
     expect(APP_SHORT_NAME).toBe("TODAY");
     expect(APP_VERSION).toBe(config.version);
+    expect(read("src-tauri/Cargo.toml").match(/^version = "([^"]+)"/m)?.[1]).toBe(config.version);
     expect(config.productName).toBe(APP_NAME);
     expect(config.app.windows[0].title).toBe(APP_NAME);
     expect(JSON.parse(read("src-tauri/tauri.windows.conf.json")).app.windows[0].title).toBe(APP_NAME);
@@ -40,10 +41,10 @@ describe("scholay today display branding with compatible local identity", () => 
       expect(html).not.toContain(`>${BRAND_WORDMARK}</span>`);
       expect(html).toContain('src="/scholay-logo.png"');
       expect(html).not.toContain(`<span>${APP_SHORT_NAME}</span>`);
-      expect(html.match(/<button/g)).toHaveLength(7);
+      expect(html.match(/<button/g)).toHaveLength(6);
       expect(html).toContain("workspace-rail-settings");
       expect(html.match(/aria-pressed="true"/g)).toHaveLength(1);
-      expect(html.match(/<svg/g)?.length).toBeGreaterThanOrEqual(6);
+      expect(html.match(/<svg/g)?.length).toBeGreaterThanOrEqual(5);
     }
   });
   it("uses a small title-strip icon without changing other brand placements", () => {

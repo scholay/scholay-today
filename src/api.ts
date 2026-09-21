@@ -362,18 +362,20 @@ export const openPageView = (
   b: PageViewBounds,
   requestId: string,
   visible = true,
-) => invoke<void>("open_page_view", { url, ...b, requestId, visible, darkMode: pageViewDarkMode() });
+  viewId?: string,
+  saved?: { webUrl: string | null; zoom: number; zoomMode: string },
+) => invoke<boolean>("open_page_view", { url, ...b, requestId, visible, viewId, resumeUrl: saved?.webUrl, zoomFactor: saved?.zoom, zoomMode: saved?.zoomMode, darkMode: pageViewDarkMode() });
 export const setPageViewTheme = (dark: boolean) => invoke<void>("set_page_view_theme", { dark });
-export const setPageViewBounds = (b: PageViewBounds) =>
-  invoke<void>("set_page_view_bounds", { ...b });
-export const setPageViewVisible = (visible: boolean) =>
-  invoke<void>("set_page_view_visible", { visible });
-export const closePageView = () => invoke<void>("close_page_view");
-export const navigatePageViewHistory = (direction: "back" | "forward") =>
-  invoke<void>("page_view_navigate_history", { direction });
-export const reloadPageView = () => invoke<void>("page_view_reload");
-export const setPageViewZoom = (action: PageZoomAction) =>
-  invoke<PageViewZoomEvent>("set_page_view_zoom", { action });
+export const setPageViewBounds = (b: PageViewBounds, viewId?: string, requestId?: string) =>
+  invoke<void>("set_page_view_bounds", { ...b, viewId, requestId });
+export const setPageViewVisible = (visible: boolean, viewId?: string, requestId?: string) =>
+  invoke<void>("set_page_view_visible", { visible, viewId, requestId });
+export const closePageView = (viewId?: string, requestId?: string) => invoke<void>("close_page_view", { viewId, requestId });
+export const navigatePageViewHistory = (direction: "back" | "forward", viewId?: string, requestId?: string) =>
+  invoke<void>("page_view_navigate_history", { direction, viewId, requestId });
+export const reloadPageView = (viewId?: string, requestId?: string) => invoke<void>("page_view_reload", { viewId, requestId });
+export const setPageViewZoom = (action: PageZoomAction, viewId?: string, requestId?: string) =>
+  invoke<PageViewZoomEvent>("set_page_view_zoom", { action, viewId, requestId });
 
 // Capture is local and explicit. Only aiFormatPage sends the captured page to
 // the configured AI provider; reading a saved draft never starts generation.

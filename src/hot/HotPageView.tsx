@@ -9,11 +9,16 @@ import WebZoomControls from "../components/WebZoomControls";
 import { enqueuePageView, nextPageViewRequestId } from "../lib/pageViewQueue";
 import { isPageViewStatusEvent, safePageViewUrl, type PageViewAction } from "../lib/pageViewState";
 import { reportError } from "../toast";
-import { applyHotPageViewStatus, createHotPageViewState, hotPageViewForUrl, updateHotPageView, waitForHotPageView, type HotPageViewState } from "./hotPageViewState";
+import { useBlockingOverlay } from "../lib/useBlockingOverlay";
+import { useUi } from "../store";
+import { acceptReaderPageEvent, readerPageRequest } from "../lib/readerPageSession";
+import { useReadingGroups } from "../lib/readingGroups";
+import { applyHotPageViewStatus, createHotPageViewState, hotExternalUrl, hotPageViewForUrl, isBaiduVerificationUrl, updateHotPageView, waitForHotPageView, type HotPageViewState } from "./hotPageViewState";
 import "../components/reader-web-controls.css";
 import "./hot-page-view.css";
 
 export interface HotPageViewProps {
+  viewId?: string;
   url: string;
   active: boolean;
   onClose?: () => void;
@@ -22,25 +27,44 @@ export interface HotPageViewProps {
 
 /** An independent source-page viewer. It neither selects an RSS article nor
  * starts extraction, translation, capture, or an AI request. */
-export default function HotPageView({ url, active, onClose, onStateChange }: HotPageViewProps) {
+export default function HotPageView({ url, active, onClose, onStateChange, viewId = "page-view" }: HotPageViewProps) {
   const { t } = useTranslation();
   const sourceUrl = safePageViewUrl(url);
   const [state, setState] = useState<HotPageViewState | null>(null);
   const [attempt, setAttempt] = useState(0);
+  const previousAttempt = useRef(0);
+  const persistent = viewId.startsWith("hot-");
+  const [recreated, setRecreated] = useState(false);
   const hostRef = useRef<HTMLDivElement>(null);
   const activeRef = useRef(active);
   activeRef.current = active;
+  const blocking = useBlockingOverlay();
+  const modal = useUi(s => s.modalOpen);
+  const menu = useUi(s => s.menuOpen);
+  const ai = useUi(s => s.aiOpen);
+  const overlay = blocking || modal || menu || ai;
+  const overlayRef = useRef(overlay);
+  overlayRef.current = overlay;
   const controllerRef = useRef<{ requestId: string; run: (action: PageViewAction) => void } | null>(null);
   const current = hotPageViewForUrl(state, sourceUrl);
-  const externalUrl = safePageViewUrl(current?.currentUrl ?? sourceUrl);
+  const currentUrl = safePageViewUrl(current?.currentUrl ?? sourceUrl);
+  const externalUrl = hotExternalUrl(sourceUrl, currentUrl);
+  const baiduVerification = isBaiduVerificationUrl(currentUrl);
   const stateChangeRef = useRef(onStateChange);
   stateChangeRef.current = onStateChange;
   useEffect(() => { stateChangeRef.current?.(active ? current : null); }, [active, current]);
+  useEffect(() => {
+    if (!recreated) return;
+    const timer = window.setTimeout(() => setRecreated(false), 4500);
+    return () => window.clearTimeout(timer);
+  }, [recreated]);
 
   useEffect(() => {
     const host = hostRef.current;
     if (!active || !sourceUrl || !host) return;
-    const requestId = nextPageViewRequestId("hot");
+    const requestId = persistent ? readerPageRequest(viewId, attempt !== previousAttempt.current) : nextPageViewRequestId("hot");
+    previousAttempt.current = attempt;
+    const suspend = () => persistent ? api.setPageViewVisible(false, viewId, requestId) : api.closePageView(viewId, requestId);
     let cancelled = false;
     let open = false;
     let unlisten: UnlistenFn | undefined;
@@ -71,8 +95,8 @@ export default function HotPageView({ url, active, onClose, onStateChange }: Hot
         void enqueuePageView(async () => {
           if (cancelled || !activeRef.current || !open) return;
           try {
-            if (action === "reload") await api.reloadPageView();
-            else await api.navigatePageViewHistory(action);
+            if (action === "reload") await api.reloadPageView(viewId, requestId);
+            else await api.navigatePageViewHistory(action, viewId, requestId);
           } catch {
             if (!cancelled && activeRef.current) {
               clearWaitTimer();
@@ -90,7 +114,7 @@ export default function HotPageView({ url, active, onClose, onStateChange }: Hot
       if (cancelled || !activeRef.current) return;
       try {
         const removeListener = await listen<api.PageViewStatusEvent>("page-view-status", ({ payload }) => {
-          if (cancelled || !activeRef.current || !isPageViewStatusEvent(payload) || payload.requestId !== requestId) return;
+          if (cancelled || !activeRef.current || !isPageViewStatusEvent(payload) || payload.requestId !== requestId || payload.viewId !== viewId || (persistent && !acceptReaderPageEvent(payload))) return;
           if ((payload.phase === "loading" || payload.phase === "loaded") && !safePageViewUrl(payload.url)) return;
           setState((value) => applyHotPageViewStatus(value, payload));
           if (payload.phase === "loading") armWaitTimer();
@@ -99,15 +123,23 @@ export default function HotPageView({ url, active, onClose, onStateChange }: Hot
         if (cancelled || !activeRef.current) { removeListener(); return; }
         unlisten = removeListener;
         armWaitTimer();
-        await api.openPageView(sourceUrl, bounds(), requestId);
+        const saved = persistent ? useReadingGroups.getState().tabs.find(tab => tab.id === viewId)?.reading : undefined;
+        // Creation can outlast a pane drag. Keep the native surface hidden
+        // until its rectangle has caught up with the current layout.
+        const reused = await api.openPageView(sourceUrl, bounds(), requestId, false, viewId, saved);
+        if (!cancelled) setRecreated(!reused && Boolean(saved?.webUrl));
         open = true;
         if (cancelled || !activeRef.current) {
-          await api.closePageView().catch(() => {});
+          await suspend().catch(() => {});
           return;
         }
+        await api.setPageViewBounds(bounds(), viewId, requestId);
+        if (cancelled || !activeRef.current) { await suspend(); return; }
         // A fast loaded event may precede the open response. Creation must not
         // put an already-loaded page back into a permanent loading state.
         setState((value) => updateHotPageView(value, requestId, { created: true }));
+        // An overlay can open while the native creation is in flight.
+        await api.setPageViewVisible(!overlayRef.current, viewId, requestId);
       } catch {
         clearWaitTimer();
         unlisten?.();
@@ -115,14 +147,14 @@ export default function HotPageView({ url, active, onClose, onStateChange }: Hot
         if (!cancelled && activeRef.current) {
           setState((value) => updateHotPageView(value, requestId, { created: false, loading: false, waiting: false, error: "create" }));
         }
-        await api.closePageView().catch(() => {});
+        await suspend().catch(() => {});
       }
     });
 
     const sync = () => {
       if (!open || cancelled || !activeRef.current) return;
       void enqueuePageView(async () => {
-        if (open && !cancelled && activeRef.current) await api.setPageViewBounds(bounds());
+        if (open && !cancelled && activeRef.current) await api.setPageViewBounds(bounds(), viewId, requestId);
       }).catch(() => {});
     };
     const observer = new ResizeObserver(sync);
@@ -136,9 +168,17 @@ export default function HotPageView({ url, active, onClose, onStateChange }: Hot
       if (controllerRef.current?.requestId === requestId) controllerRef.current = null;
       observer.disconnect();
       window.removeEventListener("resize", sync);
-      void enqueuePageView(() => api.closePageView()).catch(() => {});
+      void enqueuePageView(suspend).catch(() => {});
     };
-  }, [active, sourceUrl, attempt]);
+  }, [active, sourceUrl, attempt, viewId]);
+
+  useEffect(() => {
+    const controller = controllerRef.current;
+    if (!active || !current?.created || !controller) return;
+    void enqueuePageView(async () => {
+      if (activeRef.current && controllerRef.current === controller) await api.setPageViewVisible(!overlayRef.current, viewId, controller.requestId);
+    }).catch(() => {});
+  }, [active, current?.created, current?.requestId, overlay, viewId]);
 
   const run = (action: PageViewAction) => {
     if (activeRef.current) controllerRef.current?.run(action);
@@ -157,8 +197,8 @@ export default function HotPageView({ url, active, onClose, onStateChange }: Hot
           <button type="button" title={t("reader.webForward")} aria-label={t("reader.webForward")} disabled={!active || !current?.created} onClick={() => run("forward")}><Icon name="chevron-right" size={15}/></button>
           <button type="button" title={t("reader.webReload")} aria-label={t("reader.webReload")} disabled={!active || !sourceUrl || (!current?.created && !!current?.loading && !current.waiting)} onClick={() => current?.created ? run("reload") : retry()}><Icon name="refresh" size={14}/></button>
         </div>
-        <span className="reader-webview-url" title={externalUrl ?? undefined}>{externalUrl ?? t("reader.webUnsafeUrl")}</span>
-        <WebZoomControls disabled={!active} requestId={current?.requestId}/>
+        <span className="reader-webview-url" title={currentUrl ?? undefined}>{currentUrl ?? t("reader.webUnsafeUrl")}</span>
+        <WebZoomControls disabled={!active} requestId={current?.requestId} viewId={viewId}/>
         <WebThemeToggle disabled={!active}/>
         {current?.loading && <span className="reader-web-loading" role="status" title={current.waiting ? t("reader.webWaitingHint") : t("common.loading")} aria-label={current.waiting ? t("reader.webWaitingShort") : t("common.loading")}><span className="reader-web-spinner" aria-hidden="true"/>{current.waiting && <span>{t("reader.webWaitingShort")}</span>}</span>}
         <div className="reader-web-navigation">
@@ -166,6 +206,11 @@ export default function HotPageView({ url, active, onClose, onStateChange }: Hot
           {onClose && <button type="button" title={t("common.close")} aria-label={t("common.close")} disabled={!active} onClick={onClose}><Icon name="x" size={15}/></button>}
         </div>
       </div>
+      {recreated && <div className="reader-cache-notice" role="status">网页缓存已释放，已按最近网址重新加载。</div>}
+      {baiduVerification && <div className="reader-web-notice" role="status">
+        <span>百度要求安全验证。若验证后仍返回此页，可在系统浏览器继续。</span>
+        <button type="button" disabled={!active || !externalUrl} onClick={() => externalOpen(externalUrl)}>在系统浏览器打开原始搜索</button>
+      </div>}
       {current && (current.error || current.downloadUrl) && <div className="reader-web-notice" role={current.error ? "alert" : "status"}>
         <span>{t(current.error === "create" ? "reader.webviewUnavailable" : current.error === "control" ? "reader.webControlUnavailable" : "reader.webDownloadHint")}</span>
         {current.error ? <button type="button" disabled={!active} onClick={retry}>{t("reader.retryWebpage")}</button> : <button type="button" disabled={!active} onClick={() => externalOpen(current.downloadUrl)}>{t("reader.webOpenDownload")}</button>}

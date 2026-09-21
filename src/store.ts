@@ -7,6 +7,7 @@ import i18n from "./i18n";
 import * as api from "./api";
 import { applyUiScale, UI_SCALES, type UiScale } from "./lib/uiScale";
 import { loadDefaultOpenMode } from "./lib/readerViewMode";
+import { useReaderTabs } from "./lib/readerTabs";
 import type { ArticleQuery } from "./types";
 export type { UiScale } from "./lib/uiScale";
 export { applyUiScale, stepUiScale, UI_SCALES } from "./lib/uiScale";
@@ -187,7 +188,7 @@ interface UiState {
   menuOpen: boolean;
 
   select: (query: ArticleQuery, label: string) => void;
-  openArticle: (id: number | null) => void;
+  openArticle: (id: number | null, mode?: "formatted") => void;
   toggleUnreadOnly: () => void;
   toggleSort: () => void;
   setListAnchor: (offset: number) => void;
@@ -288,7 +289,7 @@ function loadPrefs(): Prefs {
 export const useUi = create<UiState>((set, get) => ({
   query: { kind: "all" },
   queryLabel: i18n.t("smart.all"),
-  selectedArticleId: null,
+  selectedArticleId: useReaderTabs.getState().tabs.find(t => t.id === useReaderTabs.getState().activeId)?.articleId ?? null,
   unreadOnly: false,
   sortOldest: false,
   listAnchor: 0,
@@ -331,9 +332,13 @@ export const useUi = create<UiState>((set, get) => ({
     // can restore it next launch.
     ls.set("lastView", JSON.stringify({ query, label }));
     // Reset the paging anchor: a new selection always opens at the newest page.
-    set({ query, queryLabel: label, selectedArticleId: null, listAnchor: 0 });
+    set({ query, queryLabel: label, listAnchor: 0 });
   },
-  openArticle: (id) => set({ selectedArticleId: id }),
+  openArticle: (id, mode) => {
+    const tabs = useReaderTabs.getState();
+    if (id != null) tabs.open(id, false, { title: "", mode });
+    else if (tabs.activeId) tabs.close([tabs.activeId]);
+  },
   // Toggling a filter/sort rebuilds the list, so re-anchor to the newest page.
   toggleUnreadOnly: () => set((s) => ({ unreadOnly: !s.unreadOnly, listAnchor: 0 })),
   toggleSort: () => set((s) => ({ sortOldest: !s.sortOldest, listAnchor: 0 })),
@@ -399,6 +404,12 @@ export const useUi = create<UiState>((set, get) => ({
   setModalOpen: (modalOpen) => set({ modalOpen }),
   setMenuOpen: (menuOpen) => set({ menuOpen }),
 }));
+
+// One-way compatibility projection; tab operations are the only selection writer.
+useReaderTabs.subscribe(s => {
+  const selectedArticleId = s.tabs.find(t => t.id === s.activeId)?.articleId ?? null;
+  if (useUi.getState().selectedArticleId !== selectedArticleId) useUi.setState({ selectedArticleId });
+});
 
 // Seed the backend's appearance copy on startup so an existing install — whose
 // theme has lived only in localStorage until now — still gets the native

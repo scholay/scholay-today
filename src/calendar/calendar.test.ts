@@ -12,7 +12,7 @@ import yearWindowSeeds from "./yearWindowSeeds.json";
 import yearProgramSeeds from "./yearProgramSeeds.json";
 import yearLocalSeeds from "./yearLocalSeeds.json";
 import yearSocialSeeds from "./yearSocialSeeds.json";
-import { cellMarks, habitsInFocus, habitsOnDateKey, spanFocusEventIds, yearHabits } from "./yearHabits";
+import { cellMarks, habitsOnDateKey, yearHabits } from "./yearHabits";
 import { explainTag, TAG_GLOSSARY, YEAR_GLOSSARY_TAGS } from "./tagGlossary";
 import { acceptSpan, classifyYearCategory, classifyYearTags, growLaneForFeed, growLaneForFolder, growPlacement, growYearEvents, htmlToText, keepGrowArticle, needsDeepRead, parseBodyWindow, pickGrowQueries, spanDays, YEAR_GROUPS, yearCluster, type GrowSeed } from "./yearGrow";
 
@@ -541,16 +541,14 @@ describe("academic calendar views", () => {
     expect(read("calendar/calendar.css")).not.toContain(".calendar-dot { display: inline-block; flex: 0 0 auto; width: 5px; height: 5px; border-radius: 50%; background: var(--cal-dot-0); }");
     expect(board).toContain("--span-t");
     expect(board).toContain("through");
-    // Blue overview for 全部; the green–yellow–red ramp after a tag, or while a cell is selected.
-    expect(board).toContain("scale={view === \"year\" && (tag != null || focusKey != null)}");
+    // Blue overview for 全部; the green–yellow–red ramp after a tag.
+    expect(board).toContain("scale={view === \"year\" && tag != null}");
     expect(board).toContain("scale={tag != null}");
     expect(board).toContain("scale ? spanTone(kind, tone) : null");
-    expect(board).toContain("habitsInFocus");
-    expect(board).toContain("spanFocusEventIds");
+    expect(board).toContain("eventFocusOnDate");
     expect(board).toContain("is-focusing");
     expect(board).toContain("entry.rawCount > 0");
-    expect(board).toContain("current === day.dateKey ? null : day.dateKey");
-    expect(board).toContain("取消选中");
+    expect(board).toContain("取消高亮");
     expect(board).toContain("clearFocus");
     expect(board).not.toContain("onHoverDay");
     expect(board).not.toContain("setHoverKey");
@@ -568,20 +566,6 @@ describe("academic calendar views", () => {
     expect(spanProgressOnDateKey(grownRamp, "05-15")!).toBeLessThan(0.6);
     expect(spanCoversDateKey(grownRamp, "05-01")).toBe(true);
     expect(spanCoversDateKey(grownRamp, "07-01")).toBe(false);
-    const otherWindow = growYearEvents([seed({ id: 82, title: "[2026年9月1日-2026年9月10日] Other conference", publishedAt: "2026-08-01" }, "会议征稿")]);
-    const hoverPool = [grownRamp, ...otherWindow];
-    const midHabits = habitsOnDateKey(hoverPool, "05-15");
-    const otherHabits = habitsOnDateKey(hoverPool, "09-05");
-    const focusIds = spanFocusEventIds(hoverPool, "05-15");
-    expect(focusIds).toEqual([grownRamp.id]);
-    expect(habitsInFocus(midHabits, "05-15", focusIds, "05-15").some((habit) => habit.evidence.some((event) => event.id === grownRamp.id))).toBe(true);
-    expect(habitsInFocus(otherHabits, "05-15", focusIds, "09-05")).toEqual([]);
-    expect(habitsInFocus(otherHabits, null, null, "09-05")).toEqual(otherHabits);
-    const pointOnly = growYearEvents([seed({ id: 83, title: "[国自然] 单独一条", publishedAt: "2026-03-01" })]);
-    const pointHabits = habitsOnDateKey(pointOnly, "03-01");
-    expect(spanFocusEventIds(pointOnly, "03-01")).toEqual([]);
-    expect(habitsInFocus(pointHabits, "03-01", [], "03-01")).toEqual(pointHabits);
-    expect(habitsInFocus(midHabits, "03-01", [], "05-15")).toEqual([]);
     // Small dots with headroom: the busiest day in either view stays under the cap.
     expect(board).toContain("const CELL_DOT_LIMIT = 8");
     const packedForDots = packedYear();

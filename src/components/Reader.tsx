@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
@@ -13,9 +13,13 @@ import { renderMarkdown } from "../lib/markdown";
 import { downloadBlob, imageFilename } from "../lib/download";
 import { imageDataUrl } from "../lib/imageBytes";
 import { loadReaderViewPreference, resolveReaderViewMode, saveReaderViewPreference, type ReaderViewMode } from "../lib/readerViewMode";
-import { DEFAULT_FORMAT_LANGUAGE, isCurrentCapture, markdownCacheAction, markdownLookupState, readerTabForArticle, settleAiFormatJob, type AiFormatJob, type AiFormatLanguage, type AiFormatSource } from "../lib/aiFormatted";
+import { DEFAULT_FORMAT_LANGUAGE, isCurrentCapture, markdownCacheAction, markdownLookupState, readerTabForArticle, settleAiFormatJob, type AiFormatLanguage } from "../lib/aiFormatted";
+import { useReaderTabs, type ReadingTab } from "../lib/readerTabs";
+import { useFormatJobs, clearFormatJob, generateFormatted as runFormatting, nextFormatRun } from "../lib/formatJobs";
+import { acceptReaderPageEvent, readerPageRequest } from "../lib/readerPageSession";
 import { errorText } from "../lib/errors";
-import { enqueuePageView, nextPageViewRequestId } from "../lib/pageViewQueue";
+import { enqueuePageView } from "../lib/pageViewQueue";
+import { useBlockingOverlay } from "../lib/useBlockingOverlay";
 import { applyPageViewStatus, createPageViewState, dismissPageViewNotice, isPageViewStatusEvent, markPageViewCreated, markPageViewError, markPageViewWaiting, pageViewBanner, pageViewExternalUrl, pageViewForArticle, safePageViewUrl, startPageViewWait, type PageViewAction, type PageViewState } from "../lib/pageViewState";
 import { fullDate } from "../lib/feedMeta";
 import { isMac } from "../lib/platform";
@@ -38,6 +42,7 @@ import Lightbox from "./Lightbox";
 import "./reader-web-controls.css";
 
 interface Props {
+  tab: ReadingTab | null;
   onToast: (msg: string) => void;
   /** Keep RSS state mounted while suspending its native page and new actions. */
   active?: boolean;
@@ -193,7 +198,7 @@ function makeLinkClickHandler(sourceUrl: string | null) {
   };
 }
 
-export default function Reader({ onToast, active = true, onCaptureBusyChange }: Props) {
+export default function Reader({ tab, onToast, active = true, onCaptureBusyChange }: Props) {
   const activeRef = useRef(active);
   activeRef.current = active;
   const captureBusyRef = useRef(false);
@@ -202,7 +207,11 @@ export default function Reader({ onToast, active = true, onCaptureBusyChange }: 
   const { t, i18n } = useTranslation();
   const qc = useQueryClient();
   const actions = useArticleActions(toast.error);
-  const id = useUi((s) => s.selectedArticleId);
+  const id = tab?.articleId ?? null;
+  const saved = useRef(tab?.reading);
+  const patchReading = useCallback((patch: Partial<import("../lib/readerTabs").ReadingState>) => { if (tab) useReaderTabs.getState().update(tab.id, patch); }, [tab?.id]);
+  const [formatRequested, setFormatRequested] = useState(false);
+  useEffect(() => { if (!active) setFormatRequested(false); }, [active]);
   const focusMode = useUi((s) => s.focusMode);
   const setFocusMode = useUi((s) => s.setFocusMode);
   const aiOpen = useUi((s) => s.aiOpen);
@@ -217,19 +226,26 @@ export default function Reader({ onToast, active = true, onCaptureBusyChange }: 
   // mode: "reader" (the default) shows the feed's own content and extraction
   // is opt-in via the toolbar button; "extracted" shows the full text.
   const [showExtracted, setShowExtracted] = useState(
-    defaultOpenMode === "extracted",
+    saved.current?.mode ? saved.current.extracted : defaultOpenMode === "extracted",
   );
-  const [showTranslation, setShowTranslation] = useState(false);
+  const [showTranslation, setShowTranslation] = useState(saved.current?.translation ?? false);
   // A manual Reading/Web choice wins across articles, feed defaults and restarts.
   // A fresh install resolves to Web; global/per-feed modes remain remembered
   // configuration, and URL-less items fall back to Reading without erasing it.
-  const [readerViewPreference, setReaderViewPreference] = useState(loadReaderViewPreference);
+  const [readerViewPreference, setReaderViewPreference] = useState(() => saved.current?.mode === "web" || saved.current?.mode === "reader" ? saved.current.mode : loadReaderViewPreference());
   const [automaticViewMode, setAutomaticViewMode] = useState<{ articleId: number; mode: ReaderViewMode } | null>(null);
   // AI is a per-article overlay, never a value written over Reading/Web memory.
-  const [formattedArticleId, setFormattedArticleId] = useState<number | null>(null);
+  const [formattedArticleId, setFormattedArticleId] = useState<number | null>(saved.current?.mode === "formatted" ? id : null);
+  useEffect(() => {
+    const request = tab?.modeRequest;
+    if (!request) return;
+    if (request.mode === "formatted") setFormattedArticleId(id);
+    // Consume the request so a later manual Reading/Web choice survives tab switches.
+    useReaderTabs.setState(state => ({ tabs: state.tabs.map(item => item.id === tab.id && item.modeRequest?.id === request.id ? { ...item, modeRequest: undefined } : item) }));
+  }, [tab?.modeRequest?.id, id]);
   const [formatLanguage, setFormatLanguage] = useState<AiFormatLanguage>(DEFAULT_FORMAT_LANGUAGE);
-  const [formatJobs, setFormatJobs] = useState<Record<number, AiFormatJob>>({});
-  const formatRunRef = useRef(0);
+  const formatJobs = useFormatJobs(s => s.jobs);
+  const setFormatJobs = useFormatJobs(s => s.setJobs);
   // One claim per native page/run prevents Strict Mode or repeated loaded
   // events from starting the same capture twice.
   const formatCaptureClaimRef = useRef<string | null>(null);
@@ -278,6 +294,8 @@ export default function Reader({ onToast, active = true, onCaptureBusyChange }: 
     sync: () => void;
   } | null>(null);
   const [webOpenAttempt, setWebOpenAttempt] = useState(0);
+  const previousWebAttempt = useRef(0);
+  const [pageRecreated, setPageRecreated] = useState(false);
   const [tagPick, setTagPick] = useState<{ x: number; y: number } | null>(null);
   const [ctxMenu, setCtxMenu] = useState<{
     x: number;
@@ -389,33 +407,23 @@ export default function Reader({ onToast, active = true, onCaptureBusyChange }: 
     // replaces the short feed snippet, which keeps the same article id.
   }, [a?.extractedHtml, a?.contentHtml]);
 
-  // Reset scroll + extraction view on article change.
   useEffect(() => {
-    setShowExtracted(useUi.getState().prefs.defaultOpenMode === "extracted");
-    setShowTranslation(false);
-    setPageViewState(null);
-    setFormattedArticleId(null);
-    // Opening/capturing belongs to the page that owned the native view. A
-    // model request may continue and save to its originating article, but a
-    // pre-capture run must not survive an article switch.
-    setFormatJobs((jobs) => {
-      let changed = false;
-      const next = { ...jobs };
-      for (const [articleId, job] of Object.entries(jobs)) {
-        if (Number(articleId) !== id && (job.phase === "opening" || job.phase === "capturing")) {
-          delete next[Number(articleId)];
-          changed = true;
-        }
-      }
-      return changed ? next : jobs;
-    });
-    setScrolled(false);
-    setTagPick(null);
-    setHeroBroken(false);
-    setHeroDataUrl(null);
-    scrollMarkedRef.current = null;
-    if (scrollRef.current) scrollRef.current.scrollTop = 0;
+    if (!pageRecreated) return;
+    const timer = window.setTimeout(() => setPageRecreated(false), 4500);
+    return () => window.clearTimeout(timer);
+  }, [pageRecreated]);
+  useEffect(() => {
+    if (a && tab) useReaderTabs.getState().metadata(tab.id, a.title, a.feedId);
+  }, [a?.id, a?.title, a?.feedId, tab?.id]);
+  useEffect(() => {
+    if (a && (saved.current?.mode || feedOpenMode !== undefined)) patchReading({ mode: readerTab, extracted: showExtracted, translation: showTranslation });
+  }, [a?.id, readerTab, showExtracted, showTranslation, feedOpenMode, patchReading]);
+  useEffect(() => () => {
+    if (id != null && useFormatJobs.getState().jobs[id]?.phase === "opening") clearFormatJob(id);
   }, [id]);
+  useEffect(() => {
+    if (!active && id != null && useFormatJobs.getState().jobs[id]?.phase === "opening") clearFormatJob(id);
+  }, [active, id]);
 
   // Apply the effective open mode once the article (and the feed list) is
   // available — declared after the reset above so it wins the same commit.
@@ -423,7 +431,7 @@ export default function Reader({ onToast, active = true, onCaptureBusyChange }: 
   // and a feeds refetch never yanks the view back.
   const openModeAppliedRef = useRef<number | null>(null);
   useEffect(() => {
-    if (!a || openMode === undefined || openModeAppliedRef.current === a.id)
+    if (saved.current?.mode || !a || openMode === undefined || openModeAppliedRef.current === a.id)
       return;
     openModeAppliedRef.current = a.id;
     setAutomaticViewMode({ articleId: a.id, mode: openMode === "web" ? "web" : "reader" });
@@ -433,7 +441,7 @@ export default function Reader({ onToast, active = true, onCaptureBusyChange }: 
   // Drive the native original-page child webview (page_view.rs) while in web
   // mode. It floats above the DOM, so we measure the host rect and keep the
   // webview aligned to it across window/sidebar resizes. Switching articles
-  // keeps the manual mode and replaces the child view with the new article URL.
+  // hides this tab's retained instance; only eviction or tab closure destroys it.
   const articleUrl = a?.url ?? null;
   const currentPageView = pageViewForArticle(pageViewState, a?.id, articleUrl);
   const currentPageUrl = pageViewExternalUrl(pageViewState, a?.id, articleUrl);
@@ -452,7 +460,8 @@ export default function Reader({ onToast, active = true, onCaptureBusyChange }: 
   // below).
   const modalOpen = useUi((s) => s.modalOpen);
   const menuOpen = useUi((s) => s.menuOpen);
-  const overlayOpen = modalOpen || menuOpen || aiOpen || tagPick != null;
+  const blockingOverlay = useBlockingOverlay();
+  const overlayOpen = modalOpen || menuOpen || blockingOverlay || aiOpen || tagPick != null;
   // Read the latest value inside the lifecycle effect without making it a
   // dependency — overlays toggle visibility (below), never the webview's life.
   const overlayOpenRef = useRef(overlayOpen);
@@ -463,9 +472,10 @@ export default function Reader({ onToast, active = true, onCaptureBusyChange }: 
   // lets us capture exactly what the user was viewing instead of reloading it.
   useEffect(() => {
     const host = pageHostRef.current;
-    if (!active || !nativePageNeeded || !articleUrl || !host || !a) return;
+    if (!active || !nativePageNeeded || !articleUrl || !host || !a || !tab) return;
 
-    const requestId = nextPageViewRequestId("reader");
+    const requestId = readerPageRequest(tab.id, webOpenAttempt !== previousWebAttempt.current);
+    previousWebAttempt.current = webOpenAttempt;
     const bounds = () => {
       // The exclusive ReaderViewOutlet replaces the Web host with the hidden
       // AI host. Always measure the current ref so the native child survives
@@ -494,7 +504,7 @@ export default function Reader({ onToast, active = true, onCaptureBusyChange }: 
     const sync = () => {
       if (open && !cancelled && activeRef.current) {
         void enqueuePageView(async () => {
-          if (open && !cancelled && activeRef.current) await api.setPageViewBounds(bounds());
+          if (open && !cancelled && activeRef.current) await api.setPageViewBounds(bounds(), tab.id, requestId);
         }).catch(() => {});
       }
     };
@@ -516,8 +526,8 @@ export default function Reader({ onToast, active = true, onCaptureBusyChange }: 
         void enqueuePageView(async () => {
           if (cancelled || !activeRef.current || !open) return;
           try {
-            if (action === "reload") await api.reloadPageView();
-            else await api.navigatePageViewHistory(action);
+            if (action === "reload") await api.reloadPageView(tab.id, requestId);
+            else await api.navigatePageViewHistory(action, tab.id, requestId);
           } catch {
             if (!cancelled && activeRef.current) {
               clearWaitTimer();
@@ -535,7 +545,7 @@ export default function Reader({ onToast, active = true, onCaptureBusyChange }: 
         // Subscribe before open: the native view may emit loading/loaded
         // before its IPC command resolves, especially for cached pages.
         const removeListener = await listen<api.PageViewStatusEvent>("page-view-status", ({ payload }) => {
-          if (cancelled || !activeRef.current || !isPageViewStatusEvent(payload) || payload.requestId !== requestId) return;
+          if (cancelled || !activeRef.current || !isPageViewStatusEvent(payload) || payload.requestId !== requestId || !acceptReaderPageEvent(payload)) return;
           if ((payload.phase === "loading" || payload.phase === "loaded") && !safePageViewUrl(payload.url)) return;
           setPageViewState((state) => applyPageViewStatus(state, payload));
           if (payload.phase === "loading") armWaitTimer();
@@ -549,23 +559,25 @@ export default function Reader({ onToast, active = true, onCaptureBusyChange }: 
         // A page created for AI is hidden in the same native command, before
         // it can paint over the formatted surface. Ordinary Web stays visible.
         const initiallyVisible = readerTabRef.current === "web" && !overlayOpenRef.current;
-        await api.openPageView(articleUrl, bounds(), requestId, initiallyVisible);
+        const reading = useReaderTabs.getState().tabs.find(t => t.id === tab.id)?.reading;
+        const reused = await api.openPageView(articleUrl, bounds(), requestId, initiallyVisible, tab.id, reading);
+        if (!cancelled) setPageRecreated(!reused && Boolean(reading?.webUrl));
         open = true;
         if (cancelled || !activeRef.current) {
-          await api.closePageView().catch(() => {});
+          await api.setPageViewVisible(false, tab.id, requestId).catch(() => {});
           return;
         }
         // Creation does not mean the webpage finished. Only a matching
         // loaded event clears loading; a timer merely offers a waiting hint.
         setPageViewState((state) => markPageViewCreated(state, requestId));
         sync();
-        await api.setPageViewVisible(readerTabRef.current === "web" && !overlayOpenRef.current).catch(() => {});
+        await api.setPageViewVisible(readerTabRef.current === "web" && !overlayOpenRef.current, tab.id, requestId).catch(() => {});
       } catch {
         clearWaitTimer();
         unlisten?.();
         unlisten = undefined;
         if (!cancelled && activeRef.current) setPageViewState((state) => markPageViewError(state, requestId, "create"));
-        await api.closePageView().catch(() => {});
+        await api.setPageViewVisible(false, tab.id, requestId).catch(() => {});
       }
     });
 
@@ -575,7 +587,7 @@ export default function Reader({ onToast, active = true, onCaptureBusyChange }: 
       unlisten?.();
       unlisten = undefined;
       if (pageViewControllerRef.current?.requestId === requestId) pageViewControllerRef.current = null;
-      void enqueuePageView(() => api.closePageView()).catch(() => {});
+      void enqueuePageView(() => api.setPageViewVisible(false, tab.id, requestId)).catch(() => {});
     };
   }, [active, nativePageNeeded, articleUrl, a?.id, webOpenAttempt]);
 
@@ -612,37 +624,15 @@ export default function Reader({ onToast, active = true, onCaptureBusyChange }: 
     const controller = pageViewControllerRef.current;
     void enqueuePageView(async () => {
       if (activeRef.current && controller && pageViewControllerRef.current === controller) {
-        await api.setPageViewVisible(readerTabRef.current === "web" && !overlayOpenRef.current);
+        await api.setPageViewVisible(readerTabRef.current === "web" && !overlayOpenRef.current, tab?.id, controller.requestId);
       }
     }).catch(() => {});
   }, [active, overlayOpen, readerTab, nativePageNeeded, articleUrl]);
 
-  const clearFormatJob = (articleId: number, runId?: number) => {
-    if (!mountedRef.current) return;
-    setFormatJobs((jobs) => {
-      const currentRunId = runId ?? jobs[articleId]?.runId;
-      return currentRunId === undefined ? jobs : settleAiFormatJob(jobs, articleId, currentRunId, null);
-    });
-  };
-
-  const generateFormatted = async (articleId: number, captureId: string, language: AiFormatLanguage, runId: number, source?: AiFormatSource) => {
-    setFormatJobs((jobs) => ({ ...jobs, [articleId]: { runId, phase: "formatting", captureId, error: null, source } }));
-    try {
-      const draft = await api.aiFormatPage(articleId, captureId, language);
-      if (draft.articleId !== articleId || draft.captureId !== captureId) throw new Error(t("aiFormatted.failed"));
-      // Persisted results belong to the originating article even if the user
-      // has moved on. Never change the newly selected article or its tab.
-      await qc.cancelQueries({ queryKey: ["ai-formatted", articleId], exact: true });
-      qc.setQueryData(["ai-formatted", articleId], draft);
-      clearFormatJob(articleId, runId);
-    } catch (cause) {
-      if (!mountedRef.current) return;
-      setFormatJobs((jobs) => settleAiFormatJob(jobs, articleId, runId, errorText(cause)));
-    }
-  };
+  const generateFormatted = (articleId: number, captureId: string, language: AiFormatLanguage, runId: number, source?: import("../lib/aiFormatted").AiFormatSource) => runFormatting(qc, articleId, captureId, language, runId, source);
 
   const beginFormatPipeline = (articleId: number, sourceUrl: string | null, forceRefresh = false) => {
-    const runId = ++formatRunRef.current;
+    const runId = nextFormatRun();
     formatCaptureClaimRef.current = null;
     setFormatJobs((jobs) => ({
       ...jobs,
@@ -695,7 +685,7 @@ export default function Reader({ onToast, active = true, onCaptureBusyChange }: 
   // lookup to settle. A saved document wins without reopening or re-spending;
   // a confirmed empty result starts the hidden Web -> capture -> AI pipeline.
   useEffect(() => {
-    if (!active || readerTab !== "formatted" || !a) return;
+    if (!active || readerTab !== "formatted" || !a || !formatRequested) return;
     if (formatCacheAction === "wait") return;
     if (formatCacheAction === "error" || formatCacheAction === "cached") {
       if (formatJob?.phase === "opening") clearFormatJob(a.id, formatJob.runId);
@@ -705,7 +695,7 @@ export default function Reader({ onToast, active = true, onCaptureBusyChange }: 
     // beginFormatPipeline deliberately creates the missing job; subsequent
     // renders stop here. Language cannot change while the job is busy.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, readerTab, a?.id, articleUrl, formatCacheAction, formatJob?.runId, formatJob?.phase]);
+  }, [active, readerTab, a?.id, articleUrl, formatCacheAction, formatJob?.runId, formatJob?.phase, formatRequested]);
 
   // A native creation/control failure is terminal for this automatic run. A
   // page that still has no Finished event ten seconds after the normal 20s
@@ -752,8 +742,9 @@ export default function Reader({ onToast, active = true, onCaptureBusyChange }: 
     // alive when a new opening job is batched below, so its loaded DOM can be
     // captured without a reload or a flash over the AI surface.
     if (readerTab === "web" && pageViewControllerRef.current?.articleId === a.id) {
-      void api.setPageViewVisible(false).catch(() => {});
+      void api.setPageViewVisible(false, tab?.id, pageViewControllerRef.current.requestId).catch(() => {});
     }
+    setFormatRequested(true);
     setFormattedArticleId(a.id);
     if (articleUrl && !formatJob && formatCacheAction === "generate") {
       beginFormatPipeline(a.id, articleUrl);
@@ -772,7 +763,7 @@ export default function Reader({ onToast, active = true, onCaptureBusyChange }: 
       return;
     }
     if (formatJob?.phase === "failed" && formatJob.captureId) {
-      const runId = ++formatRunRef.current;
+      const runId = nextFormatRun();
       void generateFormatted(a.id, formatJob.captureId, formatLanguage, runId, formatJob.source);
       return;
     }
@@ -870,9 +861,9 @@ export default function Reader({ onToast, active = true, onCaptureBusyChange }: 
 
   // Mark as read once when an unread article is opened (if the user opted in).
   useEffect(() => {
-    if (active && a && !a.isRead && markReadOnOpen) actions.setRead(a.id, true);
+    if (active && !tab?.restored && a && !a.isRead && markReadOnOpen) actions.setRead(a.id, true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, a?.id]);
+  }, [active, a?.id, tab?.restored]);
 
   // The extracted article id travels as the mutation variable, not via the
   // `a` closure: extraction is async and the user can switch articles before
@@ -1014,7 +1005,7 @@ export default function Reader({ onToast, active = true, onCaptureBusyChange }: 
   // article — so a failed fetch isn't retried on every re-render.
   const autoExtractedRef = useRef<number | null>(null);
   useEffect(() => {
-    if (!active || openMode !== "extracted" || !a || !a.url || a.extractedHtml) return;
+    if (tab?.restored || saved.current?.mode || !active || openMode !== "extracted" || !a || !a.url || a.extractedHtml) return;
     if (autoExtractedRef.current === a.id || extract.isPending) return;
     // Measure the *decoded* text, not the raw markup. A bare `<[^>]+>` tag
     // strip leaves HTML entities intact, so an entity-heavy stub
@@ -1043,7 +1034,7 @@ export default function Reader({ onToast, active = true, onCaptureBusyChange }: 
   // the reader flip back to the original at any time.
   const autoTranslatedRef = useRef<number | null>(null);
   useEffect(() => {
-    if (!active || !autoTranslateFeed || !a || !canTranslate) return;
+    if (tab?.restored || saved.current?.mode || !active || !autoTranslateFeed || !a || !canTranslate) return;
     if (autoTranslatedRef.current === a.id) return;
     autoTranslatedRef.current = a.id;
     // A fresh cached translation for the target language needs no new job;
@@ -1062,17 +1053,25 @@ export default function Reader({ onToast, active = true, onCaptureBusyChange }: 
   // read despite "mark read on scroll" being on.
   const markReadIfAtFoot = useCallback(() => {
     const el = scrollRef.current;
-    if (!activeRef.current || !el || !markReadOnScroll || !a || a.isRead) return;
+    if (!activeRef.current || tab?.restored || !el || !markReadOnScroll || !a || a.isRead) return;
     if (scrollMarkedRef.current === a.id) return;
     if (el.scrollHeight - el.scrollTop - el.clientHeight < 120) {
       scrollMarkedRef.current = a.id;
       actions.setRead(a.id, true);
     }
-  }, [active, markReadOnScroll, a, actions]);
+  }, [active, tab?.restored, markReadOnScroll, a, actions]);
+
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!el || readerTab !== "reader" || !a) return;
+    const reading = useReaderTabs.getState().tabs.find(t => t.id === tab?.id)?.reading;
+    el.scrollTop = reading?.rssScroll ?? 0;
+  }, [readerTab, a?.id]);
 
   const onScroll = () => {
     const el = scrollRef.current;
     if (!el) return;
+    patchReading({ rssScroll: el.scrollTop });
     setScrolled(el.scrollTop > 8);
     markReadIfAtFoot();
   };
@@ -1253,15 +1252,6 @@ export default function Reader({ onToast, active = true, onCaptureBusyChange }: 
           <Icon name={a.isStarred ? "star-fill" : "star"} size={16} />
         </button>
         <button
-          className={`tb-btn ${a.readLater ? "on" : ""}`}
-          onClick={() => actions.setReadLater(a.id, !a.readLater)}
-          title={t("reader.tbReadLater")}
-          aria-label={t("reader.tbReadLater")}
-          aria-pressed={a.readLater}
-        >
-          <Icon name={a.readLater ? "bookmark-fill" : "bookmark"} size={16} />
-        </button>
-        <button
           className={`tb-btn ${a.tags.length > 0 ? "on" : ""}`}
           onClick={(e) => {
             const r = e.currentTarget.getBoundingClientRect();
@@ -1376,6 +1366,7 @@ export default function Reader({ onToast, active = true, onCaptureBusyChange }: 
       <BatchExportPanel/>
       {exportOpen && <ArticleExportPanel key={`${a.id}:${readerTab}`} articleId={a.id} source={readerTab === "reader" ? "reading" : readerTab} requestId={pageViewControllerRef.current?.articleId === a.id ? pageViewControllerRef.current.requestId : null} captureId={(formattedDraft?.articleId === a.id ? formattedDraft.captureId : null) ?? structuredDoc?.captureId ?? null} webReady={!!currentPageView?.created && !currentPageView.loading && !currentPageView.error} onClose={() => setExportOpen(false)} onToast={onToast}/>}
 
+      {pageRecreated && readerTab === "web" && <div className="reader-cache-notice" role="status">{t("readerTabs.reloaded")}</div>}
       <ReaderViewOutlet
         key={readerViewKey(a.id, readerTab)}
         articleId={a.id}
@@ -1383,6 +1374,7 @@ export default function Reader({ onToast, active = true, onCaptureBusyChange }: 
         renderFormatted={() => (
         <div className="ai-formatted-stage">
           <AIFormatted
+            tabId={tab?.id}
             articleId={a.id}
             articleTitle={a.title}
             hasUrl={Boolean(a.url)}
@@ -1409,7 +1401,7 @@ export default function Reader({ onToast, active = true, onCaptureBusyChange }: 
               <button type="button" title={t("reader.webReload")} aria-label={t("reader.webReload")} disabled={formatJob?.phase === "capturing" || (!currentPageView?.created && webViewOpening && !currentPageView?.waiting)} onClick={() => currentPageView?.created ? runPageViewAction("reload") : setWebOpenAttempt((attempt) => attempt + 1)}><Icon name="refresh" size={14}/></button>
             </div>
             <span className="reader-webview-url" title={currentPageUrl ?? undefined}>{currentPageUrl ?? t("reader.webUnsafeUrl")}</span>
-            <WebZoomControls disabled={!active || formatJob?.phase === "capturing"} requestId={currentPageView?.requestId}/>
+            <WebZoomControls viewId={tab?.id} disabled={!active || formatJob?.phase === "capturing"} requestId={currentPageView?.requestId}/>
             <WebThemeToggle disabled={!active || formatJob?.phase === "capturing"}/>
             {webViewOpening && <span className="reader-web-loading" role="status" title={currentPageView?.waiting ? t("reader.webWaitingHint") : t("common.loading")} aria-label={currentPageView?.waiting ? t("reader.webWaitingShort") : t("common.loading")}><span className="reader-web-spinner" aria-hidden="true"/>{currentPageView?.waiting && <span>{t("reader.webWaitingShort")}</span>}</span>}
           </div>

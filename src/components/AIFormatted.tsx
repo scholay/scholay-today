@@ -12,6 +12,7 @@ import { safePageViewUrl } from "../lib/pageViewState";
 import { downloadFile } from "../lib/download";
 import { reportError } from "../toast";
 import Icon from "./Icon";
+import { useReaderTabs } from "../lib/readerTabs";
 import "./ai-formatted.css";
 
 export function AiFormatLanguageSelect({ value, onChange, disabled = false }: { value: AiFormatLanguage; onChange: (language: AiFormatLanguage) => void; disabled?: boolean }) {
@@ -26,6 +27,7 @@ export function AiFormatLanguageSelect({ value, onChange, disabled = false }: { 
 }
 
 interface Props {
+  tabId?: string;
   articleId: number;
   articleTitle: string;
   hasUrl: boolean;
@@ -43,9 +45,10 @@ interface Props {
   onToast: (message: string) => void;
 }
 
-export default function AIFormatted({ articleId, articleTitle, hasUrl, draft, structured = null, loading, loadError, job, language, onLanguageChange, onReformat, onRetry, onToast }: Props) {
+export default function AIFormatted({ tabId, articleId, articleTitle, hasUrl, draft, structured = null, loading, loadError, job, language, onLanguageChange, onReformat, onRetry, onToast }: Props) {
   const { t, i18n } = useTranslation();
-  const [display, setDisplay] = useState<"preview" | "source">("preview");
+  const saved = useRef(useReaderTabs.getState().tabs.find(t => t.id === tabId)?.reading);
+  const [display, setDisplay] = useState<"preview" | "source">(saved.current?.markdownDisplay ?? "preview");
   const busy = isAiFormatBusy(job);
   const structuredMarkdown = structured?.markdown?.trim() ? structured.markdown : "";
   const markdown = draft?.markdown ?? structuredMarkdown;
@@ -69,9 +72,20 @@ export default function AIFormatted({ articleId, articleTitle, hasUrl, draft, st
   const bodyRef = useRef<HTMLDivElement>(null);
   const sectionRef = useRef<HTMLElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const sourceRef = useRef<HTMLTextAreaElement>(null);
   const outlineButtonRef = useRef<HTMLButtonElement>(null);
   const [wide, setWide] = useState(false);
-  const [outlineExpanded, setOutlineExpanded] = useState<boolean | null>(null);
+  const [outlineExpanded, setOutlineExpanded] = useState<boolean | null>(saved.current?.outline ?? null);
+  useEffect(() => { if (tabId) useReaderTabs.getState().update(tabId, { markdownDisplay: display, outline: outlineExpanded }); }, [tabId, display, outlineExpanded]);
+  useLayoutEffect(() => {
+    const scroll = display === "source" ? sourceRef.current : scrollRef.current;
+    if (!scroll || !hasDocument || !tabId) return;
+    const key = display === "source" ? "markdownSourceScroll" : "markdownScroll";
+    scroll.scrollTop = useReaderTabs.getState().tabs.find(t => t.id === tabId)?.reading[key] ?? 0;
+    const save = () => useReaderTabs.getState().update(tabId, { [key]: scroll.scrollTop });
+    scroll.addEventListener("scroll", save, { passive: true });
+    return () => { scroll.removeEventListener("scroll", save); };
+  }, [tabId, display, hasDocument]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const hasOutline = display === "preview" && reading.headings.length > 0;
   const showOutline = hasOutline && (outlineExpanded ?? wide);
@@ -213,7 +227,7 @@ export default function AIFormatted({ articleId, articleTitle, hasUrl, draft, st
               <small key={warning}>{warning}</small>
             ))}
           </div> : null}
-          {display === "preview" ? <div ref={bodyRef} className="article-body ai-formatted-body" onClick={onLinkClick} dangerouslySetInnerHTML={previewMarkup}/> : <textarea className="ai-formatted-source" readOnly spellCheck={false} aria-label={t("aiFormatted.source")} value={markdown}/>}
+          {display === "preview" ? <div ref={bodyRef} className="article-body ai-formatted-body" onClick={onLinkClick} dangerouslySetInnerHTML={previewMarkup}/> : <textarea ref={sourceRef} className="ai-formatted-source" readOnly spellCheck={false} aria-label={t("aiFormatted.source")} value={markdown}/>}
           <p className="ai-format-footnote">{t(viewingStructured ? "aiFormatted.structuredHint" : "aiFormatted.reviewHint")}</p>
         </> : capturedOnly ? <div className="ai-formatted-capture-preview">
           <h2 className="ai-format-status-title">{capturedOnly.sourceTitle || articleTitle}</h2>

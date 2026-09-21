@@ -55,7 +55,10 @@ describe("append-only local label history", () => {
     expect(result.captures).toHaveLength(HISTORY_QUERY_LIMIT);
     expect(result.captures[0].at).toBe(at + HISTORY_QUERY_LIMIT);
     expect((await labelHistoryStats("all")).count).toBe(HISTORY_QUERY_LIMIT + 1);
-  }, 15_000);
+  // Keep the real 5,001-record boundary assertion. fake-indexeddb dispatches
+  // thousands of async cursor events and exceeds 15s on Windows CI runners;
+  // this is a correctness check, not a browser performance benchmark.
+  }, 60_000);
   it("keeps native periods, latest metrics and seen counts without invented traffic sums", () => {
     const early = capture(at, 4, "100万"), late = capture(at + 600_000, 2, "110万");
     early.rows.push({ ...early.rows[0] }); // A duplicated DOM row is one observation.

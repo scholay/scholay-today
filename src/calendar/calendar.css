@@ -64,7 +64,7 @@
 .calendar-workspace .calendar-month-grid > button .calendar-dots i.is-approx { opacity: .72; }
 .calendar-workspace .calendar-month-grid > button .calendar-more { align-self: center; color: var(--muted); font: 500 9px/1 var(--ui); font-style: normal; letter-spacing: .02em; }
 .calendar-workspace .calendar-month-grid > button.has-habit .calendar-day-num { font-weight: 600; }
-.calendar-almanac.is-focusing .calendar-month-grid > button:not(.is-related) .calendar-dots { visibility: hidden; }
+
 .calendar-almanac.is-focusing .calendar-month-grid > button.is-related { z-index: 4; }
 /* One vocabulary for the whole calendar: a dot. Spans walk hue 120→0
    (green → yellow → red). 全部 is blue; filled means 惯例, ringed means 依据. */
@@ -140,3 +140,20 @@
 .calendar-workspace .calendar-timeline .vertical-timeline-element-date { position: absolute; left: 0; top: 10px; float: none; width: 124px; padding: 0; opacity: 1; color: var(--muted); font: 500 12px/1.45 var(--ui); text-align: right; }
 .calendar-workspace .calendar-timeline .vertical-timeline-element-content-arrow { display: none; }
 .calendar-workspace .calendar-timeline .calendar-card { cursor: pointer; }
+
+/* Card-driven highlights keep all surrounding events visible. */
+.calendar-workspace .calendar-month-grid > button.is-related { background: color-mix(in oklab, var(--accent) 16%, transparent); box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--accent) 40%, transparent); }
+.calendar-workspace .calendar-month-grid > button.is-range-start,
+.calendar-workspace .calendar-month-grid > button.is-range-end { box-shadow: inset 0 0 0 2px var(--accent); }
+.calendar-focus-label { color: var(--accent); font: 600 9px/1 var(--ui); }
+.calendar-card.is-interactive { cursor: pointer; }
+.calendar-card.is-interactive:hover { border-color: color-mix(in oklab, var(--accent) 55%, transparent); }
+.calendar-card-select { width: 100%; text-align: left; color: inherit; font: inherit; }
+.calendar-evidence-select { display: block; width: 100%; text-align: left; color: var(--ink); }
+.calendar-evidence-select small { display: block; color: var(--muted); margin-top: 4px; }
+.calendar-evidence-select[aria-pressed="true"] { color: var(--accent); }
+.calendar-card-select:focus-visible, .calendar-evidence-select:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.calendar-focus-summary { border-left: 2px solid var(--accent); padding-left: 12px; margin: 12px 0; font: 12px/1.6 var(--ui); }
+.calendar-focus-summary > div { margin-bottom: 8px; }
+.calendar-focus-summary span { display: block; color: var(--muted); }
+.calendar-focus-summary button { color: var(--accent); margin-right: 12px; }

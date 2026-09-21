@@ -1,4 +1,5 @@
 {
+  "readerTabs": { "label": "Reading tabs", "close": "Close tab", "closeOthers": "Close other tabs", "closeRight": "Close tabs to the right", "closeAll": "Close all tabs", "allTabs": "All open tabs", "reloaded": "This page was released from memory and is reloading." },
   "common": {
     "cancel": "Cancel",
     "confirm": "OK",
@@ -41,6 +42,7 @@
     "loadError": "Couldn't play this episode"
   },
   "smart": {
+    "agented": "Agented",
     "all": "All Articles",
     "unread": "Unread",
     "starred": "Starred",
@@ -145,6 +147,7 @@
     "unreadOnly": "Unread only",
     "markAllRead": "Mark all as read (⇧A)",
     "markRead": "Mark as read",
+    "agentedEmpty": "Articles processed by an Agent will appear here.",
     "emptyState": "No articles here — enjoy the calm",
     "loadError": "Couldn't load articles"
   },
@@ -660,6 +663,7 @@
     "toastTagDeleted": "Tag deleted"
   },
   "error": {
+    "articleNotFound": "This article is no longer available.",
     "db": "Database error: {{detail}}",
     "migration": "Database migration failed: {{detail}}",
     "network": "Network error: {{detail}}",

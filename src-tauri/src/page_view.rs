@@ -18,6 +18,7 @@
 //! Built on Tauri's `unstable` child-webview API; see `Cargo.toml`.
 
 use serde::{Deserialize, Serialize};
+use std::{collections::HashMap, sync::LazyLock};
 use std::sync::{
     atomic::{AtomicBool, AtomicU64, Ordering},
     Arc, Mutex,
@@ -27,7 +28,7 @@ use tauri::{
     AppHandle, Emitter, EventTarget, LogicalPosition, LogicalSize, Manager, WebviewUrl,
 };
 
-/// Label of the single original-page child webview.
+/// Legacy workspace page, isolated from the retained RSS tab pages.
 const LABEL: &str = "page-view";
 const STATUS_EVENT: &str = "page-view-status";
 const ZOOM_EVENT: &str = "page-view-zoom";
@@ -40,7 +41,65 @@ const MACOS_DESKTOP_SAFARI_USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac
 // destroyed views, including popup work queued before an article switch.
 static VIEW_OPERATION: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 static ACTIVE_INSTANCE: AtomicU64 = AtomicU64::new(0);
-static ACTIVE_REQUEST: Mutex<Option<Arc<PageRequest>>> = Mutex::new(None);
+static PAGES: LazyLock<Mutex<HashMap<String, Arc<PageRequest>>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+static VISIBLE_PAGE: Mutex<Option<String>> = Mutex::new(None);
+static USE_CLOCK: AtomicU64 = AtomicU64::new(0);
+const READING_PAGE_LIMIT: usize = 10;
+
+#[cfg(feature = "reader-tabs-smoke")]
+#[path = "reader_tabs_smoke.rs"]
+pub mod smoke;
+
+fn page_id(id: Option<&str>) -> Result<&str, String> {
+    let id = id.unwrap_or(LABEL);
+    if matches!(id, LABEL | "labels-page") || (is_reading_page(id) && id.len() <= 100 && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')) { Ok(id) }
+    else { Err("Invalid page instance.".into()) }
+}
+fn is_reading_page(id: &str) -> bool { id.starts_with("rss-") || id.starts_with("hot-") }
+fn page(id: &str) -> Option<Arc<PageRequest>> {
+    PAGES.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned()
+}
+fn page_for_request(id: &str) -> Option<Arc<PageRequest>> {
+    PAGES.lock().unwrap_or_else(|e| e.into_inner()).values().find(|r| r.request_id == id).cloned()
+}
+fn pages() -> Vec<Arc<PageRequest>> {
+    PAGES.lock().unwrap_or_else(|e| e.into_inner()).values().cloned().collect()
+}
+fn refresh_page_address(app: &AppHandle, request: &PageRequest) {
+    // History API / hash navigation need not emit a document load. Read the
+    // native main-frame address when suspending, reusing or capturing a page.
+    if let Some(url) = app.get_webview(&request.view_id).and_then(|view| view.url().ok()).filter(is_original_page_url) {
+        let mut current = request.current_url.lock().unwrap_or_else(|e| e.into_inner());
+        if *current != url { *current = url; request.navigation_epoch.fetch_add(1, Ordering::AcqRel); }
+    }
+}
+fn activate_page(app: &AppHandle, id: &str) {
+    *VISIBLE_PAGE.lock().unwrap_or_else(|e| e.into_inner()) = Some(id.into());
+    for request in pages() {
+        if request.view_id != id {
+            request.presentation.lock().unwrap_or_else(|e| e.into_inner()).visible = false;
+            if let Some(view) = app.get_webview(&request.view_id) { let _ = view.hide(); }
+        }
+    }
+}
+fn destroy_page(app: &AppHandle, id: &str) -> Result<(), String> {
+    if let Some(request) = page(id) {
+        if request.capturing.load(Ordering::Acquire) { return Err("This page is being captured.".into()); }
+        request.alive.store(false, Ordering::Release);
+        if let Some(view) = app.get_webview(id) {
+            if let Err(error) = view.close() { request.alive.store(true, Ordering::Release); return Err(error.to_string()); }
+        }
+        PAGES.lock().unwrap_or_else(|e| e.into_inner()).remove(id);
+    }
+    let mut visible = VISIBLE_PAGE.lock().unwrap_or_else(|e| e.into_inner());
+    if visible.as_deref() == Some(id) { *visible = None; }
+    Ok(())
+}
+fn eviction_candidate(entries: &[Arc<PageRequest>]) -> Option<String> {
+    entries.iter().filter(|r| is_reading_page(&r.view_id) && !r.capturing.load(Ordering::Acquire) && !r.presentation.lock().unwrap_or_else(|e| e.into_inner()).visible)
+        .min_by_key(|r| r.last_used.load(Ordering::Acquire)).map(|r| r.view_id.clone())
+}
+
 
 #[derive(Clone, Copy, Serialize, Debug, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -54,12 +113,18 @@ enum PagePhase {
 #[derive(Clone, Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
 struct PageViewStatus {
+    view_id: String,
+    instance: u64,
     request_id: String,
     url: String,
     phase: PagePhase,
 }
 
 struct PageRequest {
+    view_id: String,
+    alive: AtomicBool,
+    capturing: AtomicBool,
+    last_used: AtomicU64,
     instance: u64,
     request_id: String,
     // Only on_page_load updates this main-page URL. on_navigation also sees
@@ -74,7 +139,7 @@ struct PageRequest {
 
 impl PageRequest {
     fn is_active(&self) -> bool {
-        ACTIVE_INSTANCE.load(Ordering::Acquire) == self.instance
+        self.alive.load(Ordering::Acquire)
     }
 
     fn payload(&self, phase: PagePhase, candidate: Option<&url::Url>) -> PageViewStatus {
@@ -89,6 +154,8 @@ impl PageRequest {
             &current
         };
         PageViewStatus {
+            view_id: self.view_id.clone(),
+            instance: self.instance,
             request_id: self.request_id.clone(),
             url: url.to_string(),
             phase,
@@ -120,6 +187,8 @@ impl Default for PageZoom {
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PageViewZoom {
+    view_id: String,
+    instance: u64,
     request_id: String,
     factor: f64,
     mode: &'static str,
@@ -203,6 +272,8 @@ fn emit_zoom(app: &AppHandle, request: &PageRequest, zoom: PageZoom) {
             status_target(),
             ZOOM_EVENT,
             PageViewZoom {
+                view_id: request.view_id.clone(),
+                instance: request.instance,
                 request_id: request.request_id.clone(),
                 factor: zoom.factor,
                 mode: zoom_mode_label(zoom.mode),
@@ -251,7 +322,8 @@ fn sync_page_visibility(view: &tauri::Webview, request: Arc<PageRequest>) {
     // a settings dialog or resurrect a view replaced by another article.
     let _ = view.run_on_main_thread(move || {
         if !request.is_active() { return; }
-        let show = request.presentation.lock().unwrap_or_else(|e| e.into_inner()).should_show();
+        let show = request.presentation.lock().unwrap_or_else(|e| e.into_inner()).should_show()
+            && VISIBLE_PAGE.lock().unwrap_or_else(|e| e.into_inner()).as_deref() == Some(request.view_id.as_str());
         if show { let _ = current_view.show(); }
         else { let _ = current_view.hide(); }
     });
@@ -318,7 +390,7 @@ fn queue_navigation(app: AppHandle, request: Arc<PageRequest>, url: url::Url) {
                 if !request_for_main.is_active() {
                     return;
                 }
-                if let Some(view) = app_for_main.get_webview(LABEL) {
+                if let Some(view) = app_for_main.get_webview(&request_for_main.view_id) {
                     if view.navigate(url).is_err() {
                         emit_status(&app_for_main, &request_for_main, PagePhase::Blocked, None);
                     }
@@ -347,7 +419,25 @@ fn is_bilibili_host(url: &url::Url) -> bool {
 
 #[cfg(target_os = "macos")]
 fn page_view_user_agent(url: &url::Url) -> Option<&'static str> {
-    is_bilibili_host(url).then_some(MACOS_DESKTOP_SAFARI_USER_AGENT)
+    (is_bilibili_host(url) || is_baidu_host(url)).then_some(MACOS_DESKTOP_SAFARI_USER_AGENT)
+}
+
+fn is_baidu_host(url: &url::Url) -> bool {
+    url.host_str().is_some_and(|host| host == "baidu.com" || host.ends_with(".baidu.com"))
+}
+
+// A verification page is a transient step, not a durable reading position.
+// Apply this only when recreating a view; live verification navigation and
+// its cookies/query parameters must remain entirely under the site's control.
+fn page_resume_url(original: &url::Url, resume: Option<&str>) -> Result<url::Url, String> {
+    let destination = resume.map(parse_url).transpose()?.unwrap_or_else(|| original.clone());
+    if is_baidu_host(original)
+        && destination.host_str() == Some("wappass.baidu.com")
+        && destination.path().starts_with("/static/captcha/")
+    {
+        return Ok(original.clone());
+    }
+    Ok(destination)
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -395,12 +485,12 @@ fn history_script(direction: &str) -> Result<&'static str, String> {
 /// Fixed labels-only DOM probe. No article capture or remote IPC grant. Bind
 /// before and after evaluation so a late callback cannot read a new workspace.
 pub(crate) fn label_auth_view(app: &AppHandle, request_id: &str, source: &crate::label_board::Source) -> Result<tauri::Webview, String> {
-    let request = ACTIVE_REQUEST.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("授权页面已关闭")?;
+    let request = page("labels-page").ok_or("授权页面已关闭")?;
     if request.request_id != request_id || !request.is_active()
         || request.initial_url.as_str() != source.url || !request.loaded.load(Ordering::Acquire) {
         return Err("请等待当前平台授权页面就绪".into());
     }
-    let view = app.get_webview(LABEL).ok_or("授权页面已关闭")?;
+    let view = app.get_webview(&request.view_id).ok_or("授权页面已关闭")?;
     if !crate::label_board::allowed(source, &view.url().map_err(|_| "无法确认授权页面")?) {
         return Err("请回到当前平台的官方页面保存授权".into());
     }
@@ -410,7 +500,7 @@ pub(crate) fn label_auth_view(app: &AppHandle, request_id: &str, source: &crate:
 pub(crate) async fn inspect_label_page(
     app: AppHandle, request_id: String, source: &crate::label_board::Source, script: String,
 ) -> Result<String, String> {
-    let request = ACTIVE_REQUEST.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    let request = page("labels-page")
         .ok_or("请先打开平台页面")?;
     let initial = url::Url::parse(&source.url).map_err(|_| "平台网址无效")?;
     if request.request_id != request_id || !request.is_active() || request.initial_url != initial
@@ -418,7 +508,7 @@ pub(crate) async fn inspect_label_page(
         return Err("等待当前平台页面就绪".into());
     }
     let epoch = request.navigation_epoch.load(Ordering::Acquire);
-    let view = app.get_webview(LABEL).ok_or("平台页面已关闭")?;
+    let view = app.get_webview(&request.view_id).ok_or("平台页面已关闭")?;
     // SPA filters can change the URL without a page-load event. Bind to the
     // actual native URL (not the last load event), including before/after eval.
     let current = view.url().map_err(|_| "无法确认平台页面")?;
@@ -443,7 +533,7 @@ pub(crate) async fn inspect_label_page(
 }
 
 /// Show the original page at `url` over the given reading-area rectangle.
-/// Each open creates a fresh view whose callbacks capture this request ID.
+/// Reuse a resident tab, or create a new generation after eviction/retry.
 #[tauri::command]
 pub async fn open_page_view(
     app: AppHandle,
@@ -455,32 +545,68 @@ pub async fn open_page_view(
     height: f64,
     visible: bool,
     dark_mode: bool,
-) -> Result<(), String> {
+    view_id: Option<String>,
+    resume_url: Option<String>,
+    zoom_factor: Option<f64>,
+    zoom_mode: Option<String>,
+) -> Result<bool, String> {
     let parsed = parse_url(&url)?;
     if request_id.is_empty() || request_id.len() > 256 || request_id.chars().any(char::is_control) {
         return Err("Invalid original-page request ID.".into());
     }
+    let id = page_id(view_id.as_deref())?.to_owned();
     let _operation = VIEW_OPERATION.lock().await;
     crate::page_theme::set_dark(dark_mode);
+    if let Some(existing) = page(&id) {
+        if existing.request_id == request_id && existing.initial_url == parsed {
+            if let Some(view) = app.get_webview(&id) {
+                refresh_page_address(&app, &existing);
+                existing.last_used.store(USE_CLOCK.fetch_add(1, Ordering::AcqRel), Ordering::Release);
+                if visible { activate_page(&app, &id); }
+                existing.presentation.lock().unwrap_or_else(|e| e.into_inner()).visible = visible;
+                view.set_position(LogicalPosition::new(x, y)).map_err(|e| e.to_string())?;
+                view.set_size(LogicalSize::new(width, height)).map_err(|e| e.to_string())?;
+                prepare_page_presentation(&view, existing.clone(), dark_mode);
+                emit_status(&app, &existing, if existing.loaded.load(Ordering::Acquire) { PagePhase::Loaded } else { PagePhase::Loading }, None);
+                emit_zoom(&app, &existing, *existing.zoom.lock().unwrap_or_else(|e| e.into_inner()));
+                return Ok(true);
+            }
+        }
+        destroy_page(&app, &id)?;
+    }
+    // The previously visible page is now a background eviction candidate.
+    activate_page(&app, &id);
+    if is_reading_page(&id) {
+        let entries = pages();
+        if entries.iter().filter(|r| is_reading_page(&r.view_id)).count() >= READING_PAGE_LIMIT {
+            let victim = eviction_candidate(&entries).ok_or("All cached pages are busy.")?;
+            let retired = page(&victim).ok_or("Missing cached page.")?;
+            refresh_page_address(&app, &retired);
+            let url = retired.current_url.lock().unwrap_or_else(|e| e.into_inner()).to_string();
+            let zoom = *retired.zoom.lock().unwrap_or_else(|e| e.into_inner());
+            destroy_page(&app, &victim)?;
+            let _ = app.emit_to(status_target(), "page-view-evicted", serde_json::json!({ "viewId": victim, "requestId": retired.request_id, "instance": retired.instance, "url": url, "factor": zoom.factor, "mode": zoom_mode_label(zoom.mode) }));
+        }
+    }
+    let destination = page_resume_url(&parsed, resume_url.as_deref())?;
     let instance = ACTIVE_INSTANCE.fetch_add(1, Ordering::AcqRel) + 1;
     let request = Arc::new(PageRequest {
+        view_id: id.clone(),
+        alive: AtomicBool::new(true),
+        capturing: AtomicBool::new(false),
+        last_used: AtomicU64::new(USE_CLOCK.fetch_add(1, Ordering::AcqRel)),
         instance,
         request_id,
-        current_url: Mutex::new(parsed.clone()),
+        current_url: Mutex::new(destination.clone()),
         initial_url: parsed.clone(),
         navigation_epoch: AtomicU64::new(0),
         loaded: AtomicBool::new(false),
         presentation: Mutex::new(crate::page_theme::Presentation::new(visible, dark_mode)),
-        zoom: Mutex::new(PageZoom::default()),
+        zoom: Mutex::new(PageZoom { mode: if zoom_mode.as_deref() == Some("manual") { ZoomMode::Manual } else { ZoomMode::Fit }, factor: clamp_zoom_factor(zoom_factor.unwrap_or(1.0)) }),
     });
-    *ACTIVE_REQUEST.lock().unwrap_or_else(|e| e.into_inner()) = Some(request.clone());
+    PAGES.lock().unwrap_or_else(|e| e.into_inner()).insert(id.clone(), request.clone());
     let position = LogicalPosition::new(x, y);
     let size = LogicalSize::new(width, height);
-
-    if let Some(view) = app.get_webview(LABEL) {
-        view.close()
-            .map_err(|_| "Could not close the previous original page.".to_string())?;
-    }
 
     // `get_window` / `add_child` are part of the `unstable` feature. The main
     // WebviewWindow's underlying Window shares its "main" label.
@@ -498,10 +624,11 @@ pub async fn open_page_view(
     // WKWebView's default UA omits the Safari version/product tokens. Bilibili
     // treats that otherwise-current WebKit engine as an obsolete browser and
     // can redirect valid links to its download fallback. Keep the override
-    // narrow: it follows this webview through Bilibili redirects, while every
+    // narrow: Bilibili and Baidu use desktop Safari's full product tokens;
+    // it follows the webview through verification redirects, while every
     // unrelated publisher retains the native default UA.
     let user_agent = page_view_user_agent(&parsed);
-    let mut builder = WebviewBuilder::new(LABEL, WebviewUrl::External(parsed))
+    let mut builder = WebviewBuilder::new(&id, WebviewUrl::External(destination))
         .initialization_script(crate::page_theme::initialization_script())
         .initialization_script(page_zoom_initialization_script());
     if let Some(user_agent) = user_agent {
@@ -592,92 +719,71 @@ pub async fn open_page_view(
     // Create dark-mode children outside the visible window until their native
     // backing and preparation gate are in place, avoiding even a blank white
     // frame between add_child and hide. Original mode takes the direct path.
-    let initial_position = if dark_mode { LogicalPosition::new(-width.max(1.0) - 100.0, y) } else { position };
-    let view = window
-        .add_child(builder, initial_position, size)
-        .map_err(|_| "Could not open the original-page webview.".to_string())?;
+    let initial_position = if dark_mode || !visible { LogicalPosition::new(-width.max(1.0) - 100.0, y) } else { position };
+    let view = match window.add_child(builder, initial_position, size) {
+        Ok(view) => view,
+        Err(_) => { destroy_page(&app, &id)?; return Err("Could not open the original-page webview.".into()); }
+    };
     if !visible || dark_mode {
         view.hide()
             .map_err(|_| "Could not hide the original-page webview.".to_string())?;
     }
-    if dark_mode {
+    if dark_mode || !visible {
         view.set_position(position).map_err(|e| e.to_string())?;
     }
     prepare_page_presentation(&view, request, dark_mode);
-    Ok(())
+    Ok(false)
 }
 
-/// Reposition/resize the open page view (window resized, sidebar toggled, …).
-/// No-op when the view isn't open.
+/// All controls target a named page, never an unrelated current tab.
 #[tauri::command]
-pub async fn set_page_view_bounds(
-    app: AppHandle,
-    x: f64,
-    y: f64,
-    width: f64,
-    height: f64,
-) -> Result<(), String> {
-    if let Some(view) = app.get_webview(LABEL) {
-        view.set_position(LogicalPosition::new(x, y))
-            .map_err(|e| e.to_string())?;
-        view.set_size(LogicalSize::new(width, height))
-            .map_err(|e| e.to_string())?;
-        if let Some(request) = ACTIVE_REQUEST.lock().unwrap_or_else(|e| e.into_inner()).clone() {
-            if request.zoom.lock().unwrap_or_else(|e| e.into_inner()).mode == ZoomMode::Fit {
-                apply_page_zoom(&app, &view, request);
-            }
-        }
+pub async fn set_page_view_bounds(app: AppHandle, x: f64, y: f64, width: f64, height: f64, view_id: Option<String>, request_id: Option<String>) -> Result<(), String> {
+    let _operation = VIEW_OPERATION.lock().await;
+    let Some(request) = controlled_page(view_id.as_deref(), request_id.as_deref())? else { return Ok(()) };
+    if let Some(view) = app.get_webview(&request.view_id) {
+        view.set_position(LogicalPosition::new(x, y)).map_err(|e| e.to_string())?;
+        view.set_size(LogicalSize::new(width, height)).map_err(|e| e.to_string())?;
+        if request.zoom.lock().unwrap_or_else(|e| e.into_inner()).mode == ZoomMode::Fit { apply_page_zoom(&app, &view, request); }
     }
     Ok(())
 }
-
-/// Show or hide the open page view without tearing it down. A transient
-/// overlay (context menu, modal, AI drawer) only needs the native webview out
-/// of the way for a moment — hiding keeps the loaded page alive, so dismissing
-/// the overlay reveals it instantly instead of reloading the whole page.
-/// No-op when the view isn't open.
+fn controlled_page(view_id: Option<&str>, request_id: Option<&str>) -> Result<Option<Arc<PageRequest>>, String> {
+    let request = page(page_id(view_id)?);
+    Ok(request.filter(|r| request_id.is_none_or(|id| id == r.request_id)))
+}
 #[tauri::command]
-pub async fn set_page_view_visible(app: AppHandle, visible: bool) -> Result<(), String> {
-    let request = ACTIVE_REQUEST.lock().unwrap_or_else(|e| e.into_inner()).clone();
-    if let (Some(view), Some(request)) = (app.get_webview(LABEL), request) {
+pub async fn set_page_view_visible(app: AppHandle, visible: bool, view_id: Option<String>, request_id: Option<String>) -> Result<(), String> {
+    let _operation = VIEW_OPERATION.lock().await;
+    let Some(request) = controlled_page(view_id.as_deref(), request_id.as_deref())? else { return Ok(()) };
+    if let Some(view) = app.get_webview(&request.view_id) {
+        if visible { activate_page(&app, &request.view_id); request.last_used.store(USE_CLOCK.fetch_add(1, Ordering::AcqRel), Ordering::Release); }
+        refresh_page_address(&app, &request);
+        emit_status(&app, &request, if request.loaded.load(Ordering::Acquire) { PagePhase::Loaded } else { PagePhase::Loading }, None);
         request.presentation.lock().unwrap_or_else(|e| e.into_inner()).visible = visible;
         sync_page_visibility(&view, request);
     }
     Ok(())
 }
-
-/// Tear down the page view (left web mode, switched away, reader unmounted).
 #[tauri::command]
-pub async fn close_page_view(app: AppHandle) -> Result<(), String> {
+pub async fn close_page_view(app: AppHandle, view_id: Option<String>, request_id: Option<String>) -> Result<(), String> {
     let _operation = VIEW_OPERATION.lock().await;
-    ACTIVE_INSTANCE.fetch_add(1, Ordering::AcqRel);
-    *ACTIVE_REQUEST.lock().unwrap_or_else(|e| e.into_inner()) = None;
-    if let Some(view) = app.get_webview(LABEL) {
-        view.close().map_err(|e| e.to_string())?;
-    }
+    if let Some(request) = controlled_page(view_id.as_deref(), request_id.as_deref())? { destroy_page(&app, &request.view_id)?; }
     Ok(())
 }
-
-/// Only fixed history actions are accepted; this is not a JavaScript runner.
 #[tauri::command]
-pub async fn page_view_navigate_history(app: AppHandle, direction: String) -> Result<(), String> {
+pub async fn page_view_navigate_history(app: AppHandle, direction: String, view_id: Option<String>, request_id: Option<String>) -> Result<(), String> {
     let script = history_script(&direction)?;
     let _operation = VIEW_OPERATION.lock().await;
-    let view = app
-        .get_webview(LABEL)
-        .ok_or("Original page view is not open.")?;
-    view.eval(script)
-        .map_err(|_| "Could not navigate original-page history.".into())
+    let request = controlled_page(view_id.as_deref(), request_id.as_deref())?.ok_or("Original page view is not open.")?;
+    let view = app.get_webview(&request.view_id).ok_or("Original page view is not open.")?;
+    view.eval(script).map_err(|_| "Could not navigate original-page history.".into())
 }
-
 #[tauri::command]
-pub async fn page_view_reload(app: AppHandle) -> Result<(), String> {
+pub async fn page_view_reload(app: AppHandle, view_id: Option<String>, request_id: Option<String>) -> Result<(), String> {
     let _operation = VIEW_OPERATION.lock().await;
-    let view = app
-        .get_webview(LABEL)
-        .ok_or("Original page view is not open.")?;
-    view.reload()
-        .map_err(|_| "Could not reload the original page.".into())
+    let request = controlled_page(view_id.as_deref(), request_id.as_deref())?.ok_or("Original page view is not open.")?;
+    let view = app.get_webview(&request.view_id).ok_or("Original page view is not open.")?;
+    view.reload().map_err(|_| "Could not reload the original page.".into())
 }
 
 /// A fixed boolean styling command, not a generic script executor. Switching
@@ -685,15 +791,11 @@ pub async fn page_view_reload(app: AppHandle) -> Result<(), String> {
 /// Fixed zoom actions only. The remote page never receives IPC or a script
 /// built from caller-supplied strings.
 #[tauri::command]
-pub async fn set_page_view_zoom(app: AppHandle, action: String) -> Result<PageViewZoom, String> {
+pub async fn set_page_view_zoom(app: AppHandle, action: String, view_id: Option<String>, request_id: Option<String>) -> Result<PageViewZoom, String> {
     let _operation = VIEW_OPERATION.lock().await;
-    let request = ACTIVE_REQUEST
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .clone()
-        .ok_or("Original page view is not open.")?;
+    let request = controlled_page(view_id.as_deref(), request_id.as_deref())?.ok_or("Original page view is not open.")?;
     let view = app
-        .get_webview(LABEL)
+        .get_webview(&request.view_id)
         .ok_or("Original page view is not open.")?;
     {
         let mut zoom = request.zoom.lock().unwrap_or_else(|e| e.into_inner());
@@ -732,6 +834,8 @@ pub async fn set_page_view_zoom(app: AppHandle, action: String) -> Result<PageVi
         emit_zoom(&app, &request, zoom);
     }
     Ok(PageViewZoom {
+        view_id: request.view_id.clone(),
+        instance: request.instance,
         request_id: request.request_id.clone(),
         factor: zoom.factor,
         mode: zoom_mode_label(zoom.mode),
@@ -742,9 +846,8 @@ pub async fn set_page_view_zoom(app: AppHandle, action: String) -> Result<PageVi
 pub async fn set_page_view_theme(app: AppHandle, dark: bool) -> Result<(), String> {
     let _operation = VIEW_OPERATION.lock().await;
     crate::page_theme::set_dark(dark);
-    let request = ACTIVE_REQUEST.lock().unwrap_or_else(|e| e.into_inner()).clone();
-    if let (Some(view), Some(request)) = (app.get_webview(LABEL), request) {
-        prepare_page_presentation(&view, request, dark);
+    for request in pages() {
+        if let Some(view) = app.get_webview(&request.view_id) { prepare_page_presentation(&view, request, dark); }
     }
     Ok(())
 }
@@ -928,20 +1031,20 @@ pub(crate) async fn capture_loaded_page(
     article_url: &str,
 ) -> Result<CapturedDom, String> {
     let initial_url = parse_url(article_url)?;
-    let request = ACTIVE_REQUEST
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .clone()
-        .ok_or("Open this article in Web mode before capturing it.")?;
+    let request = page_for_request(request_id).ok_or("Open this article in Web mode before capturing it.")?;
     if !capture_matches(&request, request_id, &initial_url) {
         return Err("The article or page changed, or has not finished loading. Open its Web view and try again.".into());
     }
+    refresh_page_address(app, &request);
+    request.last_used.store(USE_CLOCK.fetch_add(1, Ordering::AcqRel), Ordering::Release);
     let epoch = request.navigation_epoch.load(Ordering::Acquire);
     let view = app
-        .get_webview(LABEL)
+        .get_webview(&request.view_id)
         .ok_or("The original page is no longer open.")?;
-    let raw = native_capture(view, request.clone(), epoch).await?;
-    validate_snapshot(&raw, &request, epoch)
+    request.capturing.store(true, Ordering::Release);
+    let result = native_capture(view, request.clone(), epoch).await;
+    request.capturing.store(false, Ordering::Release);
+    validate_snapshot(&result?, &request, epoch)
 }
 
 #[cfg(target_os = "macos")]
@@ -1024,7 +1127,7 @@ pub(crate) async fn capture_smoke_fixture(view: tauri::Webview) -> Result<Captur
     // This entry point is compiled only into the opt-in test executable.
     if url.host_str() != Some("127.0.0.1") { return Err("Smoke fixtures must be local.".into()); }
     let instance = ACTIVE_INSTANCE.fetch_add(1, Ordering::AcqRel) + 1;
-    let request = Arc::new(PageRequest { instance, request_id: "synthetic".into(), current_url: Mutex::new(url.clone()), initial_url: url, navigation_epoch: AtomicU64::new(0), loaded: AtomicBool::new(true), presentation: Mutex::new(crate::page_theme::Presentation::new(true, false)), zoom: Mutex::new(PageZoom::default()) });
+    let request = Arc::new(PageRequest { view_id: view.label().into(), alive: AtomicBool::new(true), capturing: AtomicBool::new(false), last_used: AtomicU64::new(0), instance, request_id: "synthetic".into(), current_url: Mutex::new(url.clone()), initial_url: url, navigation_epoch: AtomicU64::new(0), loaded: AtomicBool::new(true), presentation: Mutex::new(crate::page_theme::Presentation::new(true, false)), zoom: Mutex::new(PageZoom::default()) });
     let raw = native_capture(view, request.clone(), 0).await?;
     validate_snapshot(&raw, &request, 0)
 }
@@ -1052,8 +1155,66 @@ async fn native_capture(
 mod tests {
     use super::*;
 
+    #[test]
+    fn rss_cache_uses_recency_and_excludes_visible_capture_and_workspace_pages() {
+        let entries: Vec<_> = (0..10).map(|index| {
+            let mut request = capture_request();
+            request.view_id = format!("rss-{index}");
+            request.last_used.store(index, Ordering::Release);
+            request.presentation.lock().unwrap().visible = false;
+            Arc::new(request)
+        }).collect();
+        assert_eq!(eviction_candidate(&entries).as_deref(), Some("rss-0"));
+        entries[0].last_used.store(100, Ordering::Release);
+        assert_eq!(eviction_candidate(&entries).as_deref(), Some("rss-1"));
+        entries[1].presentation.lock().unwrap().visible = true;
+        entries[2].capturing.store(true, Ordering::Release);
+        assert_eq!(eviction_candidate(&entries).as_deref(), Some("rss-3"));
+        let workspace = Arc::new(capture_request());
+        assert!(eviction_candidate(&[workspace]).is_none());
+    }
+
+    #[test]
+    fn grouped_cache_counts_hot_and_rss_together_but_not_authorization() {
+        let entries: Vec<_> = (0..11).map(|index| {
+            let mut request = capture_request();
+            request.view_id = if index == 10 { "labels-page".into() } else { format!("{}-{index}", if index % 2 == 0 { "hot" } else { "rss" }) };
+            request.last_used.store(index, Ordering::Release);
+            request.presentation.lock().unwrap().visible = false;
+            Arc::new(request)
+        }).collect();
+        assert_eq!(entries.iter().filter(|p| is_reading_page(&p.view_id)).count(), READING_PAGE_LIMIT);
+        assert_eq!(eviction_candidate(&entries).as_deref(), Some("hot-0"));
+        entries[0].last_used.store(100, Ordering::Release);
+        entries[1].capturing.store(true, Ordering::Release);
+        entries[2].presentation.lock().unwrap().visible = true;
+        assert_eq!(eviction_candidate(&entries).as_deref(), Some("rss-3"));
+    }
+
+    #[test]
+    fn retired_requests_cannot_navigate_capture_or_publish_for_a_replacement() {
+        let request = capture_request();
+        assert!(request.is_active());
+        request.alive.store(false, Ordering::Release);
+        assert!(!request.is_active());
+        assert!(!capture_matches(&request, "capture-fixture", &request.initial_url));
+        let replacement = capture_request();
+        assert!(replacement.is_active());
+    }
+
+    #[test]
+    fn native_instance_names_cannot_target_the_main_app_or_authorization_views() {
+        assert_eq!(page_id(None).unwrap(), LABEL);
+        assert!(page_id(Some("rss-123-abc-def")).is_ok());
+        assert!(page_id(Some("hot-123-abc-def")).is_ok());
+        for bad in ["main", "../main", "rss-<script>", "rss-中文", "hot-../main", "hot-<script>", "authorization"] {
+            assert!(page_id(Some(bad)).is_err());
+        }
+    }
+
     pub(super) fn capture_request() -> PageRequest {
         PageRequest {
+            view_id: LABEL.into(), alive: AtomicBool::new(true), capturing: AtomicBool::new(false), last_used: AtomicU64::new(0),
             instance: ACTIVE_INSTANCE.load(Ordering::Acquire),
             request_id: "capture-fixture".into(),
             presentation: Mutex::new(crate::page_theme::Presentation::new(true, false)),
@@ -1198,6 +1359,25 @@ mod tests {
     }
 
     #[test]
+    fn baidu_resume_does_not_replay_a_saved_captcha() {
+        let original = parse_url("https://www.baidu.com/s?wd=research").unwrap();
+        let challenge = "https://wappass.baidu.com/static/captcha/tuxing_v2.html?backurl=expired&signature=expired";
+        assert_eq!(page_resume_url(&original, Some(challenge)).unwrap(), original);
+        let result = "https://www.baidu.com/s?wd=research&pn=10";
+        assert_eq!(page_resume_url(&original, Some(result)).unwrap().as_str(), result);
+        let other = parse_url("https://example.org/").unwrap();
+        assert_eq!(page_resume_url(&other, Some(challenge)).unwrap().as_str(), challenge);
+        assert!(!is_baidu_host(&parse_url("https://baidu.com.evil.example/").unwrap()));
+        assert!(!is_baidu_host(&parse_url("https://notbaidu.com/").unwrap()));
+        for url in ["https://www.baidu.com/s?wd=research", "https://wappass.baidu.com/static/captcha/tuxing_v2.html"] {
+            let parsed = parse_url(url).unwrap();
+            assert!(is_baidu_host(&parsed));
+            #[cfg(target_os = "macos")]
+            assert_eq!(page_view_user_agent(&parsed), Some(MACOS_DESKTOP_SAFARI_USER_AGENT));
+        }
+    }
+
+    #[test]
     fn original_pages_reject_non_web_schemes_on_open_and_navigation() {
         for candidate in [
             "file:///tmp/example.html",
@@ -1294,6 +1474,7 @@ mod tests {
         let request = PageRequest {
             instance: 0,
             request_id: "request-17".into(),
+            view_id: LABEL.into(), alive: AtomicBool::new(true), capturing: AtomicBool::new(false), last_used: AtomicU64::new(0),
             presentation: Mutex::new(crate::page_theme::Presentation::new(true, false)),
             current_url: Mutex::new(parse_url("https://example.com/article").unwrap()),
             initial_url: parse_url("https://example.com/article").unwrap(),
@@ -1304,7 +1485,7 @@ mod tests {
         let value = serde_json::to_value(request.payload(PagePhase::Loaded, None)).unwrap();
         assert_eq!(
             value,
-            serde_json::json!({"requestId":"request-17","url":"https://example.com/article","phase":"loaded"})
+            serde_json::json!({"viewId":LABEL,"instance":0,"requestId":"request-17","url":"https://example.com/article","phase":"loaded"})
         );
     }
 
@@ -1313,6 +1494,7 @@ mod tests {
         let request = PageRequest {
             instance: 0,
             request_id: "request-18".into(),
+            view_id: LABEL.into(), alive: AtomicBool::new(true), capturing: AtomicBool::new(false), last_used: AtomicU64::new(0),
             presentation: Mutex::new(crate::page_theme::Presentation::new(true, false)),
             current_url: Mutex::new(parse_url("https://example.com/article").unwrap()),
             initial_url: parse_url("https://example.com/article").unwrap(),

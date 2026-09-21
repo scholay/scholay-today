@@ -1,6 +1,6 @@
 import Icon, { type IconName } from "./Icon";
 
-export type Workspace = "rss" | "files" | "hot" | "labels" | "year" | "history";
+export type Workspace = "rss" | "hot" | "labels" | "year" | "history";
 
 export interface WorkspaceChoice {
   value: Workspace;
@@ -12,7 +12,6 @@ export interface WorkspaceChoice {
 
 export const WORKSPACE_CHOICES: WorkspaceChoice[] = [
   { value: "rss", label: "RSS", icon: "logo", panel: "workspace-rss-panel", group: 0 },
-  { value: "files", label: "文库", icon: "file", panel: "workspace-files-panel", group: 0 },
   { value: "hot", label: "热榜", icon: "globe", panel: "workspace-hotboard-panel", group: 1 },
   { value: "labels", label: "标签", icon: "tag", panel: "workspace-hotboard-panel", group: 1 },
   { value: "year", label: "学术年历", icon: "clock", panel: "workspace-calendar-panel", group: 2 },

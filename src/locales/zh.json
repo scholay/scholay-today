@@ -1,4 +1,5 @@
 {
+  "readerTabs": { "label": "阅读标签", "close": "关闭标签", "closeOthers": "关闭其他标签", "closeRight": "关闭右侧标签", "closeAll": "关闭全部标签", "allTabs": "所有打开的标签", "reloaded": "此网页缓存已释放，正在重新加载。" },
   "common": {
     "cancel": "取消",
     "confirm": "确定",
@@ -41,6 +42,7 @@
     "loadError": "无法播放这一集"
   },
   "smart": {
+    "agented": "Agented",
     "all": "全部文章",
     "unread": "未读",
     "starred": "星标",
@@ -145,6 +147,7 @@
     "unreadOnly": "仅未读",
     "markAllRead": "全部标为已读 (⇧A)",
     "markRead": "标为已读",
+    "agentedEmpty": "经 Agent 整理的文章会出现在这里。",
     "emptyState": "这里没有文章了 — 享受一下空白",
     "loadError": "文章加载失败"
   },
@@ -660,6 +663,7 @@
     "toastTagDeleted": "已删除标签"
   },
   "error": {
+    "articleNotFound": "这篇文章已不存在。",
     "db": "数据库出错：{{detail}}",
     "migration": "数据库迁移失败：{{detail}}",
     "network": "网络错误：{{detail}}",

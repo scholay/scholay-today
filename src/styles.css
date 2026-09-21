@@ -425,6 +425,15 @@ button { font-family: inherit; }
 .resize-handle:focus-visible {
   outline: none;
 }
+.resize-handle.is-visible { left: -6px; width: 12px; }
+.resize-handle.is-visible::after { left: 6px; background: color-mix(in oklab, var(--ink) 24%, transparent); }
+.resize-handle.is-visible::before { content: ""; position: absolute; z-index: 1; top: calc(50% - 18px); left: 3px; width: 7px; height: 36px; border: 1px solid color-mix(in oklab, var(--ink) 32%, transparent); border-radius: 5px; background: var(--panel-2); box-shadow: 0 0 0 3px var(--reader); }
+.resize-handle.is-visible:hover::after,
+.resize-handle.is-visible.is-dragging::after,
+.resize-handle.is-visible:focus-visible::after { background: var(--accent); }
+.resize-handle.is-visible:hover::before,
+.resize-handle.is-visible.is-dragging::before,
+.resize-handle.is-visible:focus-visible::before { border-color: var(--accent); background: var(--accent-soft); }
 [data-reduce-motion="true"] .resize-handle,
 [data-reduce-motion="true"] .resize-handle::after {
   transition: none;
@@ -1487,7 +1496,7 @@ button { font-family: inherit; }
    user's scroll position (issue #86). Keeping the sidebar + list mounted and
    measured underneath means exiting restores their exact prior state for free —
    the reader simply uncovers them. */
-.window.focus .reader {
+.window.focus .reader-workspace {
   position: absolute;
   inset: 0;
   z-index: 20;

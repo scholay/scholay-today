@@ -23,7 +23,7 @@ use std::{
 };
 use tauri::{AppHandle, Manager};
 
-pub const SCHEMA_VERSION: i64 = 1;
+pub const SCHEMA_VERSION: i64 = 2;
 /// The same per-request ceiling the desktop's batch export uses.
 pub const MAX_SELECTION: usize = 200;
 const DEFAULT_SELECTION: usize = 50;
@@ -75,7 +75,7 @@ fn newest_capture(
     exclude: Option<&str>,
 ) -> Result<Option<Document>, String> {
     article_export::ensure_schema(c)?;
-    let row=c.query_row("SELECT document_json FROM article_captures WHERE article_id=?1 AND (?2 IS NULL OR capture_id<>?2) ORDER BY captured_at DESC LIMIT 1",params![article_id,exclude],|r|r.get::<_,String>(0)).optional().map_err(|_|"无法读取页面快照")?;
+    let row=c.query_row("SELECT document_json FROM article_captures WHERE article_id=?1 AND capture_id NOT LIKE 'clean-%' AND (?2 IS NULL OR capture_id<>?2) ORDER BY captured_at DESC LIMIT 1",params![article_id,exclude],|r|r.get::<_,String>(0)).optional().map_err(|_|"无法读取页面快照")?;
     row.map(|v| serde_json::from_str(&v).map_err(|_| "保存的页面快照损坏".to_string()))
         .transpose()
 }
@@ -179,7 +179,7 @@ fn word_count(doc: &Document) -> i64 {
             let latin = b
                 .markdown
                 .split(|c: char| c.is_whitespace() || is_cjk(c))
-                .filter(|s| !s.is_empty())
+                .filter(|s| s.chars().any(char::is_alphanumeric))
                 .count();
             (cjk + latin) as i64
         })
@@ -193,10 +193,12 @@ fn store(
     error: Option<&str>,
 ) -> Result<(), String> {
     ensure_schema(c)?;
+    let tx = c.unchecked_transaction().map_err(|_| "无法开始清洗保存")?;
     // Never rewrite an existing capture: an adopted web snapshot stays exactly
     // as the capture that produced it recorded it.
-    c.execute("INSERT INTO article_captures(capture_id,article_id,document_json,captured_at) VALUES(?1,?2,?3,?4) ON CONFLICT(capture_id) DO NOTHING",params![doc.capture_id,doc.article_id,serde_json::to_string(doc).map_err(|_|"无法编码结构化文档")?,doc.captured_at]).map_err(|_|"无法保存结构化文档")?;
-    c.execute("INSERT INTO article_structured(article_id,capture_id,source_kind,content_hash,schema_version,blocks,words,images,cleaned_at,error) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10) ON CONFLICT(article_id) DO UPDATE SET capture_id=excluded.capture_id,source_kind=excluded.source_kind,content_hash=excluded.content_hash,schema_version=excluded.schema_version,blocks=excluded.blocks,words=excluded.words,images=excluded.images,cleaned_at=excluded.cleaned_at,error=excluded.error",params![doc.article_id,doc.capture_id,doc.source_kind,content_hash,SCHEMA_VERSION,doc.blocks.len() as i64,word_count(doc),doc.assets.len() as i64,chrono::Utc::now().to_rfc3339(),error]).map_err(|_|"无法保存清洗状态")?;
+    tx.execute("INSERT INTO article_captures(capture_id,article_id,document_json,captured_at) VALUES(?1,?2,?3,?4) ON CONFLICT(capture_id) DO NOTHING",params![doc.capture_id,doc.article_id,serde_json::to_string(doc).map_err(|_|"无法编码结构化文档")?,doc.captured_at]).map_err(|_|"无法保存结构化文档")?;
+    tx.execute("INSERT INTO article_structured(article_id,capture_id,source_kind,content_hash,schema_version,blocks,words,images,cleaned_at,error) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10) ON CONFLICT(article_id) DO UPDATE SET capture_id=excluded.capture_id,source_kind=excluded.source_kind,content_hash=excluded.content_hash,schema_version=excluded.schema_version,blocks=excluded.blocks,words=excluded.words,images=excluded.images,cleaned_at=excluded.cleaned_at,error=excluded.error",params![doc.article_id,doc.capture_id,doc.source_kind,content_hash,SCHEMA_VERSION,doc.blocks.len() as i64,word_count(doc),doc.assets.len() as i64,chrono::Utc::now().to_rfc3339(),error]).map_err(|_|"无法保存清洗状态")?;
+    tx.commit().map_err(|_| "无法提交清洗结果")?;
     Ok(())
 }
 
@@ -318,7 +320,10 @@ fn rows(c: &Connection, sel: &Selection) -> Result<Vec<Value>, String> {
     }
     match sel.cleaned {
         Some(true) => sql.push_str(" AND s.article_id IS NOT NULL"),
-        Some(false) => sql.push_str(" AND s.article_id IS NULL"),
+        Some(false) => {
+            sql.push_str(" AND (s.article_id IS NULL OR s.schema_version<>?)");
+            binds.push(SqlValue::Integer(SCHEMA_VERSION));
+        }
         None => {}
     }
     // The effective date, normalised — `published_at` is RFC 3339 and
@@ -443,7 +448,7 @@ pub fn document_for_reader(c: &Connection, article_id: i64) -> Result<Value, Str
     Ok(
         json!({"articleId":article_id,"cleaned":true,"captureId":record.capture_id,
       "sourceKind":doc.source_kind,"sourceUrl":doc.source_url,"cleanedAt":record.cleaned_at,
-      "blocks":doc.blocks.len(),"words":record.words,"images":doc.assets.len(),
+      "blocks":doc.blocks.len(),"words":record.words,"images":doc.assets.len(),"schemaVersion":record.schema_version,
       "truncated":doc.truncated,"warnings":doc.warnings,"error":record.error,
       "markdown":article_document::reading_markdown(&doc)}),
     )
@@ -681,20 +686,49 @@ async fn clean_one(app: &AppHandle, article_id: i64, force: bool) -> Result<Outc
         return Err(fetch_error
             .unwrap_or_else(|| "没有可清洗的正文；请在网页视图中打开原文后重试".into()));
     }
-    // Cleaning is text and structure only. Images stay remote; the export
-    // pipeline is what downloads bytes.
+    let doc = finish_document(doc)?;
+    let title = doc.title.clone();
+    {
+        let c = state.db.lock().await;
+        if prepare(&c, article_id, false)?.content_hash != prepared.content_hash {
+            return Err("清洗期间原文或网页快照已变化，本次结果未覆盖已有文档；请重试。".into());
+        }
+        store(&c, &doc, &prepared.content_hash, fetch_error.as_deref())?;
+    }
+    Ok(Outcome::Cleaned(title))
+}
+
+/// Versioned, conservative normalization: never summarize, invent headings,
+/// deduplicate repeated prose, or rewrite the original evidence snapshot.
+fn finish_document(mut doc: Document) -> Result<Document, String> {
+    doc.blocks.retain(|block| block.kind == "image" || !block.markdown.trim().is_empty());
+    if doc.blocks.is_empty() { return Err("没有可清洗的正文；请检查原文。".into()); }
+    doc.capture_id = format!("clean-{}", uuid::Uuid::new_v4());
+    doc.captured_at = chrono::Utc::now().to_rfc3339();
+    if doc.schema_version < article_document::DOCUMENT_SCHEMA_VERSION {
+        doc.warnings.push("来源是旧版结构化快照，无法恢复此前丢失的层级；如需完整结构，请重新抓取网页。".into());
+    }
+    doc.schema_version = article_document::DOCUMENT_SCHEMA_VERSION;
+    for (index, block) in doc.blocks.iter_mut().enumerate() {
+        block.id = format!("b{}", index + 1);
+        if block.kind != "code" { block.markdown = block.markdown.trim().to_owned(); }
+    }
+    let words = word_count(&doc);
+    if words < 80 { doc.warnings.push("正文较短，可能仅包含摘要或图片；请对照原文确认完整性。".into()); }
+    if words > 800 && !doc.blocks.iter().any(|b| b.kind == "heading") {
+        doc.warnings.push("较长正文未识别到章节标题，已保留原始段落顺序，未自动编造目录。".into());
+    }
+    if doc.truncated { doc.warnings.push("来源快照已截断，清洗结果不是完整原文。".into()); }
+    let mut warnings = HashSet::new();
+    doc.warnings.retain(|warning| !warning.trim().is_empty() && warnings.insert(warning.clone()));
+    // Images remain provenance-bound references; only an export downloads bytes.
     for asset in &mut doc.assets {
         asset.status = "remote".into();
         asset.path = None;
         asset.sha256 = None;
         asset.error = None;
     }
-    let title = doc.title.clone();
-    {
-        let c = state.db.lock().await;
-        store(&c, &doc, &prepared.content_hash, fetch_error.as_deref())?;
-    }
-    Ok(Outcome::Cleaned(title))
+    Ok(doc)
 }
 
 // ─────────────────────────── desktop library ───────────────────────────
@@ -1103,5 +1137,53 @@ mod tests {
         assert_eq!(base, content_hash(&article(None), None));
         assert_ne!(base, content_hash(&article(Some("<p>full</p>")), None));
         assert_ne!(base, content_hash(&article(None), Some("page-1")));
+    }
+
+    #[test]
+    fn normalization_is_versioned_preserves_evidence_and_marks_short_or_truncated_content() {
+        let mut evidence = fixture("<p>摘要</p><img src='/image.png'>", "rendered_webpage");
+        evidence.truncated = true;
+        let original = serde_json::to_string(&evidence).unwrap();
+        let doc = finish_document(evidence.clone()).unwrap();
+        assert_eq!(serde_json::to_string(&evidence).unwrap(), original);
+        assert!(doc.capture_id.starts_with("clean-") && doc.capture_id != evidence.capture_id);
+        assert_eq!(doc.schema_version, article_document::DOCUMENT_SCHEMA_VERSION);
+        assert!(doc.warnings.iter().any(|w| w.contains("正文较短")));
+        assert!(doc.warnings.iter().any(|w| w.contains("截断")));
+        assert_eq!(doc.assets[0].status, "remote");
+        assert_eq!(doc.assets[0].path, None);
+        assert!(finish_document(fixture("<script>nothing</script>", "web")).is_err());
+    }
+
+    #[test]
+    fn prior_cleanings_never_become_evidence_and_stale_schema_is_selectable() {
+        let c = test_db();
+        let article_id = seed(&c, feed(&c), "v2", "2026-09-09T00:00:00Z");
+        let mut evidence = fixture("<h2>原始标题</h2><p>原始正文</p>", "rendered_webpage");
+        evidence.article_id = article_id;
+        c.execute("INSERT INTO article_captures(capture_id,article_id,document_json,captured_at) VALUES(?1,?2,?3,?4)", params![evidence.capture_id, article_id, serde_json::to_string(&evidence).unwrap(), evidence.captured_at]).unwrap();
+        for _ in 0..2 {
+            let doc = finish_document(evidence.clone()).unwrap();
+            store(&c, &doc, "hash", None).unwrap();
+        }
+        let current = stored(&c, article_id).unwrap().unwrap();
+        let prepared = prepare(&c, article_id, false).unwrap();
+        assert_eq!(prepared.doc.capture_id, evidence.capture_id);
+        assert_ne!(prepared.doc.capture_id, current.capture_id);
+        c.execute("UPDATE article_structured SET schema_version=1 WHERE article_id=?1", [article_id]).unwrap();
+        assert_eq!(candidate_ids(&c, &selector(json!({}))).unwrap(), vec![article_id]);
+        assert!(list_structured_items(&c).unwrap()[0].stale_schema);
+        assert!(document_for_reader(&c, article_id).unwrap()["markdown"].as_str().unwrap().contains("原始标题"));
+    }
+
+    #[test]
+    fn failed_commit_does_not_leave_an_orphan_capture() {
+        let c = test_db();
+        let article_id = seed(&c, feed(&c), "atomic", "2026-09-09T00:00:00Z");
+        c.execute_batch("CREATE TRIGGER reject_clean BEFORE INSERT ON article_structured BEGIN SELECT RAISE(ABORT, 'test rejection'); END;").unwrap();
+        let mut doc = finish_document(fixture("<p>test</p>", "web")).unwrap(); doc.article_id = article_id;
+        assert!(store(&c, &doc, "hash", None).is_err());
+        let count: i64 = c.query_row("SELECT count(*) FROM article_captures WHERE capture_id=?1", [doc.capture_id], |r| r.get(0)).unwrap();
+        assert_eq!(count, 0);
     }
 }

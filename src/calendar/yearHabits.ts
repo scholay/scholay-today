@@ -108,29 +108,3 @@ export function cellMarks(habits: readonly YearHabit[]): CellMark[] {
       tone: habit.tone,
     }));
 }
-
-/** Span evidence that covers this cell; a selected cell uses these ids to keep one window. */
-export function spanFocusEventIds(events: readonly CalendarEvent[], dateKey: string): string[] {
-  return yearOnDateKey(events, dateKey)
-    .filter((event) => event.kind === "span")
-    .map((event) => event.id);
-}
-
-/**
- * While a cell is selected, keep the windows that cover it (from their
- * openings through the close) and drop every other mark. A point-only
- * cell keeps its own dots and hides the rest of the year.
- */
-export function habitsInFocus(
-  habits: readonly YearHabit[],
-  focusKey: string | null,
-  focusIds: readonly string[] | null,
-  dateKey: string,
-): YearHabit[] {
-  if (!focusKey || focusIds == null) return [...habits];
-  if (focusIds.length === 0) return dateKey === focusKey ? [...habits] : [];
-  const focus = new Set(focusIds);
-  const related = habits.filter((habit) => habit.evidence.some((event) => focus.has(event.id)));
-  if (related.length > 0) return related;
-  return dateKey === focusKey ? [...habits] : [];
-}

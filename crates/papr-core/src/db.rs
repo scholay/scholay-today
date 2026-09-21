@@ -300,6 +300,8 @@ static MIGRATIONS: LazyLock<Migrations> = LazyLock::new(|| {
         // 'web'. NULL (the default) keeps today's behaviour — reader view,
         // honouring the global auto-extract preference.
         M::up("ALTER TABLE feeds ADD COLUMN open_mode TEXT;"),
+        // v20 — share the desktop cleaning index with RSS smart views.
+        M::up("CREATE TABLE IF NOT EXISTS article_structured (article_id INTEGER PRIMARY KEY REFERENCES articles(id) ON DELETE CASCADE, capture_id TEXT NOT NULL, source_kind TEXT NOT NULL, content_hash TEXT NOT NULL, schema_version INTEGER NOT NULL, blocks INTEGER NOT NULL, words INTEGER NOT NULL, images INTEGER NOT NULL, cleaned_at TEXT NOT NULL, error TEXT);"),
     ])
 });
 
@@ -1172,6 +1174,7 @@ fn article_filter(query: &ArticleQuery, unread_only: bool) -> (Vec<String>, Vec<
         ArticleQuery::Unread => where_clauses.push("a.is_read = 0".into()),
         ArticleQuery::Starred => where_clauses.push("a.is_starred = 1".into()),
         ArticleQuery::ReadLater => where_clauses.push("a.read_later = 1".into()),
+        ArticleQuery::Agented => where_clauses.push("a.id IN (SELECT article_id FROM article_structured) AND a.feed_id NOT IN (SELECT feed_id FROM library_archived_feeds)".into()),
         ArticleQuery::Feed(id) => {
             where_clauses.push("a.feed_id = ?".into());
             binds.push(Value::Integer(*id));
@@ -1606,6 +1609,7 @@ pub fn mark_all_read(
         ArticleQuery::All | ArticleQuery::Unread => ("1", None),
         ArticleQuery::Starred => ("is_starred = 1", None),
         ArticleQuery::ReadLater => ("read_later = 1", None),
+        ArticleQuery::Agented => ("id IN (SELECT article_id FROM article_structured) AND feed_id NOT IN (SELECT feed_id FROM library_archived_feeds)", None),
         ArticleQuery::Feed(id) => ("feed_id = ?1", Some(*id)),
         ArticleQuery::Folder(id) => (
             "feed_id IN (SELECT id FROM feeds WHERE folder_id IN (WITH RECURSIVE tree(id) AS (SELECT ?1 UNION SELECT l.folder_id FROM library_folder_links l JOIN tree t ON l.parent_id=t.id) SELECT id FROM tree))",
@@ -2032,6 +2036,11 @@ pub fn apply_rule_to_existing(
         _ => return Ok(0),
     };
     Ok(conn.execute(&sql, params_from_iter(binds))?)
+}
+
+/// Count persisted Agent results using the same scope as the RSS list.
+pub fn agented_count(conn: &Connection) -> AppResult<i64> {
+    Ok(conn.query_row("SELECT COUNT(*) FROM articles WHERE id IN (SELECT article_id FROM article_structured) AND feed_id NOT IN (SELECT feed_id FROM library_archived_feeds)", [], |r| r.get(0))?)
 }
 
 /// (total unread, starred, read-later) counts for the sidebar smart folders.
@@ -2535,6 +2544,27 @@ mod tests {
             .query_row("SELECT id FROM articles", [], |r| r.get(0))
             .unwrap();
         (conn, article_id)
+    }
+
+    #[test]
+    fn agented_scope_uses_persisted_results_not_read_later() {
+        let (conn, id) = test_db();
+        conn.execute("INSERT INTO articles(feed_id,guid,title,read_later) SELECT feed_id,'later-only','Later only',1 FROM articles WHERE id=?1", [id]).unwrap();
+        assert_eq!(agented_count(&conn).unwrap(), 0);
+        conn.execute("INSERT INTO article_structured VALUES(?1,'capture','rss','hash',1,1,10,0,'2026-09-22',NULL)", [id]).unwrap();
+        let query = ArticleQuery::Agented;
+        assert_eq!(agented_count(&conn).unwrap(), 1);
+        let list = list_articles(&conn, &query, false, None, false, 50, 0).unwrap();
+        assert_eq!(list.iter().map(|a| a.id).collect::<Vec<_>>(), vec![id]);
+        assert_eq!(article_index(&conn, &query, false, false, id).unwrap(), Some(0));
+        assert_eq!(list_articles(&conn, &query, false, Some("body"), false, 50, 0).unwrap().len(), 1);
+        assert_eq!(mark_all_read(&conn, &query, false).unwrap(), 1);
+        assert!(list_articles(&conn, &query, true, None, false, 50, 0).unwrap().is_empty());
+        let later_read: bool = conn.query_row("SELECT is_read FROM articles WHERE guid='later-only'", [], |r| r.get(0)).unwrap();
+        assert!(!later_read);
+        conn.execute("INSERT INTO library_archived_feeds(feed_id) SELECT feed_id FROM articles WHERE id=?1", [id]).unwrap();
+        assert_eq!(agented_count(&conn).unwrap(), 0);
+        assert!(list_articles(&conn, &query, false, None, false, 50, 0).unwrap().is_empty());
     }
 
     #[test]

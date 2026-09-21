@@ -18,7 +18,8 @@ import yearWindowSeeds from "./yearWindowSeeds.json";
 import yearProgramSeeds from "./yearProgramSeeds.json";
 import yearLocalSeeds from "./yearLocalSeeds.json";
 import yearSocialSeeds from "./yearSocialSeeds.json";
-import { cellMarks, habitsInFocus, habitsOnDateKey, spanFocusEventIds, yearHabits, type YearHabit } from "./yearHabits";
+import { cellMarks, habitsOnDateKey, yearHabits, type YearHabit } from "./yearHabits";
+import { eventFocusOnDate } from "./eventFocus";
 import { explainTag } from "./tagGlossary";
 import { growYearEvents, loadGrowSeeds, YEAR_GROUPS, yearCluster, type GrowSeed } from "./yearGrow";
 import {
@@ -111,23 +112,24 @@ function Dot({ kind, soft, tone, scale }: { kind: "start" | "end" | "through" | 
   />;
 }
 
-function HabitCard({ habit, active, scale }: { habit: YearHabit; active: boolean; scale?: boolean }) {
+function HabitCard({ habit, active, scale, onSelect, onSelectEvent, focusedId }: { habit: YearHabit; active: boolean; scale?: boolean; onSelect?: () => void; onSelectEvent?: (event: CalendarEvent) => void; focusedId?: string | null }) {
   const years = habit.years.length === 1 ? `${habit.years[0]} 年` : `${habit.years[0]}–${habit.years[habit.years.length - 1]} 年`;
   const spanKind = habit.starts ? "start" : habit.ends ? "end" : "through";
-  return <article className={`calendar-card calendar-habit${habit.habit ? " is-habit" : ""}${active ? " is-focused" : ""}`}>
+  return <article className={`calendar-card calendar-habit${habit.habit ? " is-habit" : ""}${active ? " is-focused" : ""}${onSelect ? " is-interactive" : ""}`} onClick={event => { if (!(event.target as HTMLElement).closest("button,a")) onSelect?.(); }}>
     <header>
       <small>{habit.habit ? "惯例" : "依据"}</small>
       <span className="calendar-chip">{habit.tag}</span>
       {habit.tone != null && <span className="calendar-span-label"><Dot kind={spanKind} tone={habit.tone} scale={scale} />{spanWord(spanKind)}</span>}
       <small>依据 {habit.evidence.length} 条 · {years}</small>
     </header>
-    <h3>{habit.title}</h3>
+    <h3>{onSelect ? <button type="button" className="calendar-card-select" aria-pressed={active} onClick={onSelect}>{habit.title}</button> : habit.title}</h3>
     <p className="calendar-scope">{habit.habit ? "每年这个时候出现得比较密，真实条目只当作依据。" : "还只有零星依据，先记在这一天。"}</p>
     <ul className="calendar-evidence">
       {habit.evidence.slice(0, EVIDENCE_PREVIEW).map((event) => <li key={event.id}>
-        {event.payload.sourceUrl
-          ? <button type="button" className="calendar-source" onClick={() => openSource(event.payload.sourceUrl!)}>{event.start.year} · {event.title}</button>
+        {onSelectEvent
+          ? <button type="button" className="calendar-evidence-select" aria-pressed={focusedId === event.id} onClick={() => onSelectEvent(event)}>{event.start.year} · {event.title}<small>{timelineDateLabel(event)}</small></button>
           : <span>{event.start.year} · {event.title}</span>}
+        {event.payload.sourceUrl && <button type="button" className="calendar-source" onClick={() => openSource(event.payload.sourceUrl!)}>查看来源</button>}
       </li>)}
     </ul>
     {habit.evidence.length > EVIDENCE_PREVIEW && <p className="calendar-scope">还有 {habit.evidence.length - EVIDENCE_PREVIEW} 条依据。</p>}
@@ -152,9 +154,9 @@ function TagGlossary({ tag, view }: { tag: string; view: CalendarView }) {
   </aside>;
 }
 
-function EventCard({ event, active }: { event: CalendarEvent; active: boolean }) {
+function EventCard({ event, active, onSelect }: { event: CalendarEvent; active: boolean; onSelect?: () => void }) {
   const { payload } = event;
-  return <article className={`calendar-card${active ? " is-focused" : ""}`}>
+  return <article className={`calendar-card${active ? " is-focused" : ""}${onSelect ? " is-interactive" : ""}`} onClick={e => { if (!(e.target as HTMLElement).closest("button,a")) onSelect?.(); }}>
     <header>
       {event.source === "history" && <small>{event.start.year} 年</small>}
       {event.tags.map((tag) => <span key={tag} className="calendar-chip">{tag}</span>)}
@@ -164,7 +166,7 @@ function EventCard({ event, active }: { event: CalendarEvent; active: boolean })
       {payload.importance && <small>{payload.importance} 级</small>}
       {payload.eventType && <small>{payload.eventType}</small>}
     </header>
-    <h3>{event.title}</h3>
+    <h3>{onSelect ? <button type="button" className="calendar-card-select" aria-pressed={active} onClick={onSelect}>{event.title}</button> : event.title}</h3>
     {payload.body && <p>{payload.body}</p>}
     {payload.factSummary && <p>{payload.factSummary}</p>}
     {payload.scope && <p className="calendar-scope">{payload.scope}</p>}
@@ -237,8 +239,7 @@ function MonthPane({
   events,
   yearMode,
   scale,
-  focusKey,
-  focusIds,
+  focusEvents,
   onSelectDay,
 }: {
   pane: AlmanacMonth;
@@ -247,17 +248,16 @@ function MonthPane({
   events: CalendarEvent[];
   yearMode: boolean;
   scale?: boolean;
-  focusKey?: string | null;
-  focusIds?: string[] | null;
+  focusEvents: CalendarEvent[];
   onSelectDay: (day: CalendarDay) => void;
 }) {
   const grid = useMemo(() => historyMonthGrid(pane.year, pane.month), [pane.month, pane.year]);
   const cells = useMemo(() => grid.map((cell) => {
     const raw = yearMode ? habitsOnDateKey(events, cell.dateKey) : [];
-    const habits = yearMode ? habitsInFocus(raw, focusKey ?? null, focusIds ?? null, cell.dateKey) : [];
+    const habits = raw;
     const items = yearMode ? [] : historyOnDateKey(events, cell.dateKey);
     return { cell, habits, items, marks: yearMode ? cellMarks(habits) : [], rawCount: yearMode ? raw.length : items.length };
-  }), [events, focusIds, focusKey, grid, yearMode]);
+  }), [events, grid, yearMode]);
   const filled = cells.filter((entry) => entry.cell.inMonth && entry.rawCount > 0).length;
   const empty = filled === 0;
   const [forceOpen, setForceOpen] = useState(false);
@@ -292,14 +292,17 @@ function MonthPane({
         const day = { year: cell.year, month: cell.month, day: cell.day, dateKey: cell.dateKey };
         const active = sameDateKey(selected, day);
         const isToday = sameDateKey(today, day);
+        const focus = eventFocusOnDate(focusEvents, cell.dateKey);
+        const focusLabel = [focus.start ? "起" : "", focus.end ? "止" : "", focus.point ? "当日" : ""].filter(Boolean).join(" / ");
         const markCount = yearMode ? marks.length : items.length;
         const settled = yearMode ? marks.filter((mark) => mark.habit).length : 0;
         const overflow = markCount - CELL_DOT_LIMIT;
         const label = yearMode
           ? `${cell.month}月${cell.day}日${settled ? `，${settled}条惯例` : ""}${markCount - settled ? `，${markCount - settled}组依据` : ""}`
           : `${cell.month}月${cell.day}日${markCount ? `，${markCount}条` : ""}`;
-        return <button key={`${cell.year}-${cell.dateKey}-${cell.inMonth ? "in" : "out"}`} type="button" className={`${active ? "is-active" : ""}${isToday ? " is-today" : ""}${cell.inMonth ? "" : " is-out"}${settled ? " has-habit" : ""}${focusKey && markCount > 0 ? " is-related" : ""}`} aria-pressed={yearMode ? focusKey === cell.dateKey : active} aria-label={label} onClick={() => onSelectDay(day)}>
+        return <button key={`${cell.year}-${cell.dateKey}-${cell.inMonth ? "in" : "out"}`} type="button" className={`${active ? "is-active" : ""}${isToday ? " is-today" : ""}${cell.inMonth ? "" : " is-out"}${settled ? " has-habit" : ""}${focus.related ? " is-related" : ""}${focus.start ? " is-range-start" : ""}${focus.end ? " is-range-end" : ""}`} data-date={cell.inMonth ? cell.dateKey : undefined} aria-pressed={active} aria-label={`${label}${focus.related ? `，已高亮${focusLabel || "区间"}` : ""}`} onClick={() => onSelectDay(day)}>
           <span className="calendar-day-num">{cell.day}</span>
+          {focusLabel && <span className="calendar-focus-label">{focusLabel}</span>}
           {cell.dateKey === "02-29" && cell.inMonth && <span className="calendar-leap">闰</span>}
           {markCount > 0 && <span className="calendar-dots" aria-hidden>
             {yearMode
@@ -321,7 +324,7 @@ export default function CalendarBoard({ active, view }: { active: boolean; view:
   const [tag, setTag] = useState<string | null>(null);
   const [openGroup, setOpenGroup] = useState<string | null>(null);
   const [selected, setSelected] = useState<CalendarDay>(today);
-  const [focusKey, setFocusKey] = useState<string | null>(null);
+  const [focusedEvents, setFocusedEvents] = useState<CalendarEvent[]>([]);
   const [railEventId, setRailEventId] = useState<string | null>(null);
   const [splitWidth, setSplitWidth] = useState(0);
   const [almanacPref, setAlmanacPref] = useState(() => {
@@ -350,10 +353,6 @@ export default function CalendarBoard({ active, view }: { active: boolean; view:
     })).filter((item) => item.count > 0);
   }, [pool, view]);
   const visible = useMemo(() => filterByTag(pool, tag), [pool, tag]);
-  const focusIds = useMemo(
-    () => (view === "year" && focusKey ? spanFocusEventIds(visible, focusKey) : null),
-    [focusKey, view, visible],
-  );
   const months = useMemo(() => historyYearMonths(today.year), [today.year]);
   const selectedDayEvents = useMemo(() => (
     view === "history" ? historyOnDateKey(visible, selected.dateKey) : yearOnDateKey(visible, selected.dateKey)
@@ -361,7 +360,7 @@ export default function CalendarBoard({ active, view }: { active: boolean; view:
   const selectedHabits = useMemo(() => view === "year" ? habitsOnDateKey(visible, selected.dateKey) : [], [selected.dateKey, view, visible]);
   const timelineEvents = useMemo(() => sortTimelineEvents(visible), [visible]);
   const timelineHabits = useMemo(() => view === "year" ? yearHabits(visible) : [], [view, visible]);
-  const focused = railEventId ?? selectedHabits[0]?.id ?? selectedDayEvents[0]?.id ?? null;
+  const focused = railEventId;
   const split = fitAlmanacWidth(splitWidth, almanacPref);
 
   const monthStride = useCallback(() => {
@@ -378,12 +377,12 @@ export default function CalendarBoard({ active, view }: { active: boolean; view:
     if (el && stride) el.scrollTop += delta * stride;
   }, [monthStride]);
 
-  const clearFocus = useCallback(() => setFocusKey(null), []);
+  const clearFocus = useCallback(() => { setFocusedEvents([]); setRailEventId(null); }, []);
 
   const goToday = useCallback(() => {
     setSelected(today);
     setRailEventId(null);
-    setFocusKey(null);
+    setFocusedEvents([]);
     alignTo.current = { year: today.year, month: today.month };
     requestAnimationFrame(() => {
       const todayId = view === "year"
@@ -396,7 +395,7 @@ export default function CalendarBoard({ active, view }: { active: boolean; view:
   const chooseLayout = (next: CalendarLayout) => {
     setLayout(next);
     setRailEventId(null);
-    setFocusKey(null);
+    setFocusedEvents([]);
     if (next === "almanac") alignTo.current = { year: selected.year, month: selected.month };
   };
 
@@ -404,17 +403,19 @@ export default function CalendarBoard({ active, view }: { active: boolean; view:
     setTag(null);
     setOpenGroup(null);
     setRailEventId(null);
-    setFocusKey(null);
+    setFocusedEvents([]);
     setSelected(today);
     alignTo.current = { year: today.year, month: today.month };
   }, [today, view]);
 
   const chooseTag = (next: string | null) => {
+    clearFocus();
     setTag(next);
     setOpenGroup(next ? yearCluster(next) : null);
   };
 
   const toggleGroup = (group: string) => {
+    clearFocus();
     setTag(group);
     setOpenGroup((current) => (current === group && tag === group ? null : group));
   };
@@ -422,12 +423,7 @@ export default function CalendarBoard({ active, view }: { active: boolean; view:
   const selectDay = (day: CalendarDay) => {
     setSelected(day);
     setRailEventId(null);
-    if (view !== "year") return;
-    const hasMarks = habitsOnDateKey(visible, day.dateKey).length > 0;
-    setFocusKey((current) => {
-      if (!hasMarks) return null;
-      return current === day.dateKey ? null : day.dateKey;
-    });
+    setFocusedEvents([]);
   };
 
   const selectTimelineEvent = (event: CalendarEvent) => {
@@ -440,6 +436,18 @@ export default function CalendarBoard({ active, view }: { active: boolean; view:
     const [month, day] = habit.dateKey.split("-").map(Number);
     setSelected({ year: today.year, month, day, dateKey: habit.dateKey });
     setRailEventId(habit.id);
+  };
+
+  const revealDate = (dateKey: string) => {
+    const cell = scrollerRef.current?.querySelector<HTMLElement>(`[data-date="${dateKey}"]`);
+    cell?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  };
+  const highlightEvents = (events: CalendarEvent[], id: string) => {
+    if (railEventId === id) { clearFocus(); return; }
+    setRailEventId(id);
+    setFocusedEvents(events);
+    const first = events[0];
+    if (first) revealDate(dateKeyFromParts(first.start.month, eventDisplayDay(first)));
   };
 
   const resizeAlmanac = (width: number) => {
@@ -487,8 +495,8 @@ export default function CalendarBoard({ active, view }: { active: boolean; view:
     const onKey = (event: KeyboardEvent) => {
       if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey || event.isComposing) return;
       const target = event.target as HTMLElement | null;
-      if (target?.closest("input, textarea, select, [contenteditable=true], [role='separator']")) return;
-      if (event.key === "Escape" && focusKey) {
+      if (target?.closest?.("input, textarea, select, [contenteditable=true], [role='separator']")) return;
+      if (event.key === "Escape" && focusedEvents.length) {
         event.preventDefault();
         clearFocus();
         return;
@@ -500,7 +508,7 @@ export default function CalendarBoard({ active, view }: { active: boolean; view:
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [active, clearFocus, focusKey, layout, scrollMonths]);
+  }, [active, clearFocus, focusedEvents.length, layout, scrollMonths]);
 
   return <section ref={panes.hostRef} style={panes.style} className={`hot-workspace calendar-workspace is-${view} is-${layout}`} aria-label={view === "history" ? "昔日学术" : "学术年历"}>
     {isMac && <div className="titlebar" data-tauri-drag-region />}
@@ -523,7 +531,7 @@ export default function CalendarBoard({ active, view }: { active: boolean; view:
               </button>)}
             </div>;
           })
-          : tags.map((item) => <button key={item.tag} type="button" className={tag === item.tag ? "is-active" : ""} onClick={() => setTag(item.tag)}>
+          : tags.map((item) => <button key={item.tag} type="button" className={tag === item.tag ? "is-active" : ""} onClick={() => chooseTag(item.tag)}>
             <Icon name="tag" size={14}/><span>{item.tag}</span><small>{item.count}</small>
           </button>)}
       </div>
@@ -543,18 +551,18 @@ export default function CalendarBoard({ active, view }: { active: boolean; view:
           <button type="button" aria-pressed={layout === "almanac"} onClick={() => chooseLayout("almanac")}><Icon name="grid" size={13}/>月历</button>
           <button type="button" aria-pressed={layout === "timeline"} onClick={() => chooseLayout("timeline")}><Icon name="list" size={13}/>时间轴</button>
         </nav>
-        {focusKey && <button type="button" className="calendar-clear-focus" onClick={clearFocus}>取消选中</button>}
+        {focusedEvents.length > 0 && <button type="button" className="calendar-clear-focus" onClick={clearFocus}>取消高亮</button>}
         <button type="button" className="calendar-jump-today" onClick={goToday}>回到今天</button>
       </div>
       {layout === "almanac" ? <div ref={splitRef} className="calendar-split" style={{ "--cal-almanac-width": `${split.almanacWidth}px` } as CSSProperties}>
         <div
           ref={scrollerRef}
-          className={`calendar-almanac${view === "history" ? " is-history" : ""}${focusKey ? " is-focusing" : ""}`}
+          className={`calendar-almanac${view === "history" ? " is-history" : ""}${focusedEvents.length ? " is-focusing" : ""}`}
         >
-          {months.map((pane) => <MonthPane key={`${view}-${pane.year}-${pane.month}`} pane={pane} today={today} selected={selected} events={visible} yearMode={view === "year"} scale={view === "year" && (tag != null || focusKey != null)} focusKey={focusKey} focusIds={focusIds} onSelectDay={selectDay} />)}
+          {months.map((pane) => <MonthPane key={`${view}-${pane.year}-${pane.month}`} pane={pane} today={today} selected={selected} events={visible} yearMode={view === "year"} scale={view === "year" && tag != null} focusEvents={focusedEvents} onSelectDay={selectDay} />)}
         </div>
         {splitWidth > 0 && <div className="resize-handle-slot" style={{ left: split.almanacWidth }}>
-          <ResizeHandle width={split.almanacWidth} side="right" min={Math.min(ALMANAC_MIN, split.almanacWidth)} max={Math.max(split.almanacWidth, splitWidth - Math.min(DETAIL_MIN, splitWidth))} onResize={resizeAlmanac} label="调整月历宽度"/>
+          <ResizeHandle visible width={split.almanacWidth} side="right" min={Math.min(ALMANAC_MIN, split.almanacWidth)} max={Math.max(split.almanacWidth, splitWidth - Math.min(DETAIL_MIN, splitWidth))} onResize={resizeAlmanac} label="调整月历宽度"/>
         </div>}
         <section ref={detailRef} className="calendar-detail" aria-label="详情">
           {tag && <TagGlossary tag={tag} view={view} />}
@@ -568,13 +576,20 @@ export default function CalendarBoard({ active, view }: { active: boolean; view:
                 : yearEvents.length === 0
                   ? "还没长出依据。桌面端打开后，会从基金申报、国际截止日期和会议日历往上长。"
                   : "这一天还没有依据。点有标记的日子。"}</p>
+          {focusedEvents.length > 0 && <div className="calendar-focus-summary" aria-label="高亮事件日期" aria-live="polite">
+            {focusedEvents.map(event => <div key={event.id}>
+              <span>{event.title}</span>
+              <button type="button" onClick={() => revealDate(dateKeyFromParts(event.start.month, eventDisplayDay(event)))}>{event.kind === "span" ? "起：" : "日期："}{event.start.month} 月 {eventDisplayDay(event)} 日{event.approximate ? "（约）" : ""}</button>
+              {event.kind === "span" && event.end?.day != null && <button type="button" onClick={() => revealDate(dateKeyFromParts(event.end!.month, event.end!.day!))}>止：{event.end.month} 月 {event.end.day} 日</button>}
+            </div>)}
+          </div>}
           {view === "history"
             ? selectedDayEvents.length === 0
               ? <p className="calendar-empty">换一天看看同月同日还发生过什么。</p>
-              : selectedDayEvents.map((event) => <EventCard key={event.id} event={event} active={focused === event.id} />)
+              : selectedDayEvents.map((event) => <EventCard key={event.id} event={event} active={focused === event.id} onSelect={() => highlightEvents([event], event.id)} />)
             : selectedHabits.length === 0
               ? <p className="calendar-empty">{yearEvents.length === 0 ? "校历骨架已经拿掉，只留订阅里能稳定长出来的申报和会议。" : "换一个有标记的日期。"}</p>
-              : selectedHabits.map((habit) => <HabitCard key={habit.id} habit={habit} active={focused === habit.id} scale={tag != null} />)}
+              : selectedHabits.map((habit) => <HabitCard key={habit.id} habit={habit} active={focused === habit.id || habit.evidence.some(event => event.id === focused)} scale={tag != null} focusedId={focused} onSelect={() => highlightEvents(habit.evidence, habit.id)} onSelectEvent={event => highlightEvents([event], event.id)} />)}
         </section>
       </div> : <section className="calendar-timeline-wrap" aria-label="时间轴">
         <p className="calendar-lead">{view === "year"

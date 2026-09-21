@@ -30,9 +30,9 @@ afterEach(() => {
 });
 
 describe("activity rail and feature title", () => {
-  it("shows the brand logo as RSS plus files and settings without a product wordmark", () => {
+  it("shows the brand logo as RSS and settings without a product wordmark", () => {
     render("hot");
-    expect(rail().map(item => item.textContent)).toEqual(["RSS", "文库", "热榜", "标签", "学术年历", "昔日学术"]);
+    expect(rail().map(item => item.textContent)).toEqual(["RSS", "热榜", "标签", "学术年历", "昔日学术"]);
     expect(host.querySelector(".workspace-sidebar-toggle")).toBeNull();
     expect(host.querySelector(".app-brand-name")).toBeNull();
     expect(host.querySelector(".workspace-tabs")).toBeNull();
@@ -40,13 +40,13 @@ describe("activity rail and feature title", () => {
     expect(rail()[0].querySelector("svg")).toBeNull();
     for (const item of rail().slice(1)) expect(item.querySelector("svg")).not.toBeNull();
     expect(settings()?.querySelector("svg")).not.toBeNull();
-    expect(rail().map(item => item.getAttribute("aria-pressed"))).toEqual(["false", "false", "true", "false", "false", "false"]);
+    expect(rail().map(item => item.getAttribute("aria-pressed"))).toEqual(["false", "true", "false", "false", "false"]);
     expect(host.querySelector(".workspace-title-brand")?.textContent).toBe("热榜");
   });
   it("switches each workspace with one click and preserves accessible targets", () => {
     render();
-    const values: Workspace[] = ["rss", "files", "hot", "labels", "year", "history"];
-    const panels = ["workspace-rss-panel", "workspace-files-panel", "workspace-hotboard-panel", "workspace-hotboard-panel", "workspace-calendar-panel", "workspace-calendar-panel"];
+    const values: Workspace[] = ["rss", "hot", "labels", "year", "history"];
+    const panels = ["workspace-rss-panel", "workspace-hotboard-panel", "workspace-hotboard-panel", "workspace-calendar-panel", "workspace-calendar-panel"];
     for (const [index, workspace] of values.entries()) {
       change.mockClear();
       expect(rail()[index].getAttribute("aria-controls")).toBe(panels[index]);
@@ -56,17 +56,17 @@ describe("activity rail and feature title", () => {
   });
   it("follows host selection without maintaining stale local state", () => {
     render(); render("history");
-    expect(rail().map(item => item.getAttribute("aria-pressed"))).toEqual(["false", "false", "false", "false", "false", "true"]);
+    expect(rail().map(item => item.getAttribute("aria-pressed"))).toEqual(["false", "false", "false", "false", "true"]);
     expect(host.querySelector(".workspace-title-brand")?.textContent).toBe("昔日学术");
     expect(change).not.toHaveBeenCalled();
   });
   it("names the current feature in the title strip across all workspaces", () => {
-    const labels = ["RSS", "文库", "热榜", "标签", "学术年历", "昔日学术"] as const;
-    for (const [index, workspace] of (["rss", "files", "hot", "labels", "year", "history"] as const).entries()) {
+    const labels = ["RSS", "热榜", "标签", "学术年历", "昔日学术"] as const;
+    for (const [index, workspace] of (["rss", "hot", "labels", "year", "history"] as const).entries()) {
       render(workspace);
       expect(host.querySelector(".workspace-title-brand")?.textContent).toBe(labels[index]);
       expect(host.querySelector(".workspace-purpose")).toBeNull();
-      expect(rail()).toHaveLength(6);
+      expect(rail()).toHaveLength(5);
     }
     render("rss");
     expect(host.querySelector(".workspace-title-brand img")?.getAttribute("src")).toBe("/scholay-logo.png");
@@ -85,12 +85,12 @@ describe("activity rail and feature title", () => {
   });
   it("retains platform-specific shortcut hints and native button keyboard activation", () => {
     render();
-    expect(rail().map(item => item.title)).toEqual(["RSS · ⌘1", "文库 · ⌘2", "热榜 · ⌘3", "标签 · ⌘4", "学术年历 · ⌘5", "昔日学术 · ⌘6"]);
+    expect(rail().map(item => item.title)).toEqual(["RSS · ⌘1", "热榜 · ⌘2", "标签 · ⌘3", "学术年历 · ⌘4", "昔日学术 · ⌘5"]);
     expect(settings()?.title).toBe("设置 · ⌘,");
     expect(rail().every(item => item.tabIndex === 0 && item.type === "button")).toBe(true);
     document.documentElement.dataset.platform = "other";
     render("history");
-    expect(rail()[5].title).toBe("昔日学术 · Ctrl+6");
+    expect(rail()[4].title).toBe("昔日学术 · Ctrl+5");
     expect(settings()?.title).toBe("设置 · Ctrl+,");
   });
   it("migrates the retired workspace names", () => {
@@ -99,7 +99,7 @@ describe("activity rail and feature title", () => {
     expect(parseWorkspace("home")).toBe("rss");
     expect(parseWorkspace("labels")).toBe("labels");
     expect(parseWorkspace("year")).toBe("year");
-    expect(parseWorkspace("files")).toBe("files");
+    expect(parseWorkspace("files")).toBe("rss");
     expect(parseWorkspace("unknown")).toBe("rss");
   });
 });

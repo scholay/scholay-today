@@ -9,26 +9,30 @@ describe("RSS and Hot integration lifecycle boundaries", () => {
   it("uses one shared queue for both native owners and unique per-owner IDs", () => {
     for (const source of [reader, hot]) {
       expect(source).toContain('from "../lib/pageViewQueue"');
-      expect(source).toContain("enqueuePageView(() => api.closePageView())");
+
       expect(source).not.toContain("let pageViewTask");
       expect(source.indexOf('await listen<api.PageViewStatusEvent>("page-view-status"')).toBeLessThan(source.indexOf("await api.openPageView("));
     }
-    expect(reader).toContain('nextPageViewRequestId("reader")');
+    expect(reader).toContain("readerPageRequest(tab.id");
+    expect(reader).toContain("api.setPageViewVisible(false, tab.id, requestId)");
+    expect(hot).toContain("enqueuePageView(suspend)");
+    expect(hot).toContain("persistent ? api.setPageViewVisible(false, viewId, requestId) : api.closePageView(viewId, requestId)");
+    expect(hot).toContain("readerPageRequest(viewId");
     expect(hot).toContain('nextPageViewRequestId("hot")');
   });
 
   it("binds native creation to visible Web or hidden AI capture without changing Web preference", () => {
     expect(reader).toContain('const nativePageNeeded = readerTab === "web" || nativeFormatActive;');
-    expect(reader).toContain('if (!active || !nativePageNeeded || !articleUrl || !host || !a) return;');
+    expect(reader).toContain('if (!active || !nativePageNeeded || !articleUrl || !host || !a || !tab) return;');
     expect(reader).toContain("[active, nativePageNeeded, articleUrl, a?.id, webOpenAttempt]");
-    expect(reader).toContain('api.openPageView(articleUrl, bounds(), requestId, initiallyVisible)');
+    expect(reader).toContain('api.openPageView(articleUrl, bounds(), requestId, initiallyVisible, tab.id, reading)');
     expect(reader).toContain('readerTabRef.current === "web" && !overlayOpenRef.current');
-    const visibility = section(reader, "// Visibility:", "const clearFormatJob");
+    const visibility = section(reader, "// Visibility:", "const generateFormatted");
     expect(visibility).toContain("if (!active");
     expect(visibility).toContain("pageViewControllerRef.current === controller");
     expect(visibility).not.toMatch(/setViewMode|saveReaderViewPreference/);
     expect(hot).toContain("if (!active || !sourceUrl || !host) return;");
-    expect(hot).toContain("[active, sourceUrl, attempt]");
+    expect(hot).toContain("[active, sourceUrl, attempt, viewId]");
   });
 
   it("locks only capture and always releases it while allowing model jobs to settle", () => {
@@ -39,20 +43,25 @@ describe("RSS and Hot integration lifecycle boundaries", () => {
     expect(capture).toMatch(/finally\s*\{\s*captureBusyRef\.current = false;\s*captureBusyChangeRef\.current\?\.\(false\)/);
     const generate = section(reader, "const generateFormatted =", "const captureAndFormat =");
     expect(generate).not.toMatch(/activeRef|enqueuePageView|captureBusyChange/);
-    expect(generate).toContain('qc.setQueryData(["ai-formatted", articleId], draft)');
+    expect(readFileSync(new URL("./formatJobs.ts", import.meta.url), "utf8")).toContain('qc.setQueryData(["ai-formatted", articleId], draft)');
   });
 
   it("prevents hidden RSS measurements/actions and portals from affecting Hot", () => {
-    expect(reader).toContain("if (!activeRef.current || !el || !markReadOnScroll");
-    expect(reader).toContain("if (active && a && !a.isRead && markReadOnOpen)");
-    expect(reader).toContain('if (!active || openMode !== "extracted"');
-    expect(reader).toContain("if (!active || !autoTranslateFeed");
+    expect(reader).toContain("if (!activeRef.current || tab?.restored || !el || !markReadOnScroll");
+    expect(reader).toContain("if (active && !tab?.restored && a && !a.isRead && markReadOnOpen)");
+    expect(reader).toContain('if (tab?.restored || saved.current?.mode || !active || openMode !== "extracted"');
+    expect(reader).toContain("if (tab?.restored || saved.current?.mode || !active || !autoTranslateFeed");
     expect(reader).toContain("startTranslate(a.id, targetLang, engine)");
     for (const name of ["lightbox", "tagPick", "ctxMenu"]) expect(reader).toContain(`{active && ${name} && (`);
   });
 
   it("keeps Hot independent of RSS article state, capture and AI", () => {
-    expect(hot).not.toMatch(/useUi|selectedArticleId|capturePageView|aiFormatPage|extractFulltext|startTranslate|<iframe\b/);
+    // Overlay flags are now intentionally shared; RSS article state and
+    // article-producing/paid operations must remain completely independent.
+    expect(hot).not.toMatch(/selectedArticleId|capturePageView|aiFormatPage|extractFulltext|startTranslate|<iframe\b/);
+    expect(hot).toContain("const overlay = blocking || modal || menu || ai;");
+    expect(hot).toContain("payload.viewId !== viewId");
+    expect(hot).toContain("acceptReaderPageEvent(payload)");
     expect(hot).toContain("safePageViewUrl(url)");
     expect(hot).toContain("safePageViewUrl(target)");
     expect(hot).toContain("20_000");

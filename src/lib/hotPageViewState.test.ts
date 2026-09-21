@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyHotPageViewStatus, createHotPageViewState, hotPageViewForUrl, updateHotPageView, waitForHotPageView } from "../hot/hotPageViewState";
+import { applyHotPageViewStatus, createHotPageViewState, hotExternalUrl, hotPageViewForUrl, isBaiduVerificationUrl, updateHotPageView, waitForHotPageView } from "../hot/hotPageViewState";
 
 const initial = () => createHotPageViewState("hot-current", "https://example.invalid/source");
 
@@ -45,4 +45,15 @@ describe("standalone Hot native source state", () => {
     expect(hotPageViewForUrl(initial(), null)).toBeNull();
     expect(hotPageViewForUrl(initial(), "https://example.invalid/source")).not.toBeNull();
   });
+});
+
+it("hands the original Baidu search to an external browser without replaying verification tokens", () => {
+  const original = "https://www.baidu.com/s?wd=research";
+  const challenge = "https://wappass.baidu.com/static/captcha/tuxing_v2.html?signature=temporary&backurl=expired";
+  expect(isBaiduVerificationUrl(challenge)).toBe(true);
+  expect(hotExternalUrl(original, challenge)).toBe(original);
+  expect(hotExternalUrl(original, "https://example.org/article")).toBe("https://example.org/article");
+  expect(isBaiduVerificationUrl("https://wappass.baidu.com.evil.example/static/captcha/test")).toBe(false);
+  expect(isBaiduVerificationUrl("https://wappass.baidu.com/passport/login")).toBe(false);
+  expect(hotExternalUrl("javascript:alert(1)", challenge)).toBeNull();
 });

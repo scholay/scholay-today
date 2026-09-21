@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import * as api from "../api";
 import { useUi } from "../store";
+import { useReaderTabs } from "../lib/readerTabs";
 import { useArticleActions } from "../hooks/articleActions";
 import { relTime } from "../lib/feedMeta";
 import { isMac, modCombo } from "../lib/platform";
@@ -234,14 +235,20 @@ export default function ArticleList({ onToast }: Props) {
 
   // Reveal the selected article. The common case (keyboard nav, clicking a row)
   // finds it already loaded and just scrolls. The hard case is an article
-  // opened from search: selecting it also switches feed, and it may live far
-  // below the first loaded page — or be hidden by the "unread only" filter. We
-  // ask the backend for its position under the current filters and page the
-  // virtual list down to it (see the locate effect below); if it's filtered out
-  // (null), drop the unread filter so it rejoins the list and locate again.
+  // opened from search or another tab: it may live below the loaded window.
+  // Locate within the current scope only; tab activation never changes filters.
   const revealedForRef = useRef<number | null>(null);
   const lookupRef = useRef<number | null>(null);
   const [locate, setLocate] = useState<{ id: number; rank: number } | null>(null);
+  const revealScope = JSON.stringify([query, unreadOnly, sortOldest]);
+  const revealScopeRef = useRef(revealScope);
+  revealScopeRef.current = revealScope;
+  useEffect(() => {
+    revealedForRef.current = null;
+    lookupRef.current = null;
+    setLocate(null);
+    setReveal(null);
+  }, [revealScope]);
   useEffect(() => {
     if (selectedId == null) return;
     if (revealedForRef.current === selectedId) return;
@@ -252,27 +259,19 @@ export default function ArticleList({ onToast }: Props) {
       setReveal(selectedId);
       return;
     }
-    // Not in the loaded window. Locate read-agnostically: an "unread only" view
-    // can't reliably hold the article we're opening (it may already be read, or
-    // get marked read on open, and then the page query filters it right back
-    // out), so switch to "all" first, then page to it. Only reached for an
-    // article below the loaded window — a recent one is already in view.
+    // A late result from another feed/filter must not reposition this list.
     if (lookupRef.current === selectedId) return;
-    if (unreadOnly) {
-      toggleUnreadOnly();
-      return;
-    }
     lookupRef.current = selectedId;
     const target = selectedId;
     api
-      .articleIndex(query, false, sortOldest, target)
+      .articleIndex(query, unreadOnly, sortOldest, target)
       .then((rank) => {
-        if (useUi.getState().selectedArticleId !== target) return;
+        if (useUi.getState().selectedArticleId !== target || revealScopeRef.current !== revealScope) return;
         if (rank != null) setLocate({ id: target, rank });
       })
       .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedId, items]);
+  }, [selectedId, items, revealScope]);
 
   // Drive the located article into view. If it's outside the loaded window,
   // jump the paging anchor to its page so the list reloads *only* there (rather
@@ -369,7 +368,7 @@ export default function ArticleList({ onToast }: Props) {
   };
 
   const articleMenu = (a: ArticleSummary): MenuEntry[] => [
-    { icon: "open", label: t("articleList.menuOpen"), shortcut: "⏎", onClick: () => openArticle(a.id) },
+    { icon: "open", label: t("articleList.menuOpen"), shortcut: "⏎", onClick: () => openArticle(a.id, query.kind === "agented" ? "formatted" : undefined) },
     ...(a.url
       ? ([
           {
@@ -386,14 +385,6 @@ export default function ArticleList({ onToast }: Props) {
       label: a.isStarred ? t("articleList.menuUnstar") : t("articleList.menuStar"),
       shortcut: "S",
       onClick: () => actions.setStarred(a.id, !a.isStarred),
-    },
-    {
-      icon: a.readLater ? "bookmark-fill" : "bookmark",
-      label: a.readLater
-        ? t("articleList.menuRemoveReadLater")
-        : t("articleList.menuAddReadLater"),
-      shortcut: "B",
-      onClick: () => actions.setReadLater(a.id, !a.readLater),
     },
     {
       icon: a.isRead ? "circle" : "check",
@@ -438,7 +429,7 @@ export default function ArticleList({ onToast }: Props) {
           : e.key === "ArrowDown"
             ? Math.min(items.length - 1, cur < 0 ? 0 : cur + 1)
             : Math.max(0, cur < 0 ? 0 : cur - 1);
-    openArticle(items[next].id);
+    openArticle(items[next].id, query.kind === "agented" ? "formatted" : undefined);
   };
 
   return (
@@ -500,7 +491,7 @@ export default function ArticleList({ onToast }: Props) {
             <div className="glyph">
               <Icon name="check" size={22} />
             </div>
-            <div>{t("articleList.emptyState")}</div>
+            <div>{query.kind === "agented" ? t("articleList.agentedEmpty") : t("articleList.emptyState")}</div>
           </div>
         )}
 
@@ -510,7 +501,7 @@ export default function ArticleList({ onToast }: Props) {
             tabIndex={0}
             aria-labelledby="article-list-title"
             aria-activedescendant={
-              !selecting && selectedId != null ? `option-article-${selectedId}` : undefined
+              !selecting && selectedId != null && vItems.some(row => items[row.index]?.id === selectedId) ? `option-article-${selectedId}` : undefined
             }
             onKeyDown={onListKeyDown}
             style={{
@@ -552,7 +543,8 @@ export default function ArticleList({ onToast }: Props) {
                     role={selecting ? "listitem" : "option"}
                     id={`option-article-${a.id}`}
                     aria-selected={selecting ? undefined : selectedId === a.id}
-                    onClick={() => openArticle(a.id)}
+                    onClick={(event) => { if (selecting) openArticle(a.id, query.kind === "agented" ? "formatted" : undefined); else useReaderTabs.getState().open(a.id, event.metaKey || event.ctrlKey, { title: a.title, feedId: a.feedId, mode: query.kind === "agented" ? "formatted" : undefined }); }}
+                    onAuxClick={(event) => { if (!selecting && event.button === 1) { event.preventDefault(); useReaderTabs.getState().open(a.id, true, { title: a.title, feedId: a.feedId, mode: query.kind === "agented" ? "formatted" : undefined }); } }}
                     onContextMenu={(e) => {
                       e.preventDefault();
                       setMenu({ x: e.clientX, y: e.clientY, article: a });
@@ -579,11 +571,6 @@ export default function ArticleList({ onToast }: Props) {
                       {a.isStarred && (
                         <span className="art-star">
                           <Icon name="star-fill" size={12} />
-                        </span>
-                      )}
-                      {a.readLater && !a.isStarred && (
-                        <span className="art-star">
-                          <Icon name="bookmark-fill" size={12} />
                         </span>
                       )}
                     </div>

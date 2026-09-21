@@ -101,10 +101,10 @@ describe("AI reader integration boundaries", () => {
     const open = reader.slice(reader.indexOf("const openFormatted ="), reader.indexOf("const reformat ="));
     expect(open).toContain("setFormattedArticleId(a.id)");
     expect(open).toContain("beginFormatPipeline(a.id, articleUrl)");
-    expect(reader).toContain('qc.setQueryData(["ai-formatted", articleId], draft)');
+    expect(read("lib/formatJobs.ts")).toContain('qc.setQueryData(["ai-formatted", articleId], draft)');
     expect(reader).toContain('readerTabForArticle(viewMode, formattedArticleId, a?.id)');
     expect(reader).toContain('phase: "opening"');
-    expect(reader).toContain('api.openPageView(articleUrl, bounds(), requestId, initiallyVisible)');
+    expect(reader).toContain('api.openPageView(articleUrl, bounds(), requestId, initiallyVisible, tab.id, reading)');
     expect(reader).toContain('nativeFormatActive && <div className="ai-format-page-host"');
     expect(reader).not.toMatch(/formatPromptArticleId|ai-format-capture|captureConsent/);
     expect(reader).not.toMatch(/saveReaderViewPreference\("formatted"/);
