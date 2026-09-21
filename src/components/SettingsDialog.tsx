@@ -1286,7 +1286,6 @@ function ShortcutsSection() {
       title: t("settings.shortcuts.actions"),
       items: [
         { desc: t("settings.shortcuts.star"), keys: ["S"] },
-        { desc: t("settings.shortcuts.readLater"), keys: ["B"] },
         { desc: t("settings.shortcuts.aiSummary"), keys: ["I"] },
         { desc: t("settings.shortcuts.markAllRead"), keys: ["⇧", "A"] },
       ],

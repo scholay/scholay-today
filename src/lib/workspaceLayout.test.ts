@@ -40,7 +40,7 @@ describe("shared workspace frame with independent RSS and hot content", () => {
     expect(read("WorkspaceApp.tsx")).toContain("<TrendsWorkspace");
     expect(read("WorkspaceApp.tsx")).toContain("<CalendarBoard");
     expect(read("WorkspaceApp.tsx")).not.toContain("HomeBoard");
-    expect(read("WorkspaceApp.tsx")).toContain("<FilesBoard");
+    expect(read("WorkspaceApp.tsx")).not.toContain("<FilesBoard");
     expect(read("styles.css")).toContain(':root[data-platform="mac"] .sidebar { padding-top: 38px; }');
     expect(read("hot/hot.css")).toContain(':root[data-platform="mac"] .hot-sidebar { padding-top: 38px; }');
     expect(read("styles.css")).toMatch(/\.titlebar\s*\{[^}]*height:\s*38px;/);
@@ -50,7 +50,7 @@ describe("shared workspace frame with independent RSS and hot content", () => {
   it("keeps one host rail without adding duplicate IDs", () => {
     expect(read("components/Reader.tsx")).not.toContain("workspaceSwitch");
     const html = renderToStaticMarkup(createElement(WorkspaceSwitcher, { workspace: "hot", captureBusy: false, onChange: () => {} }));
-    expect(html.match(/<button/g)).toHaveLength(7);
+    expect(html.match(/<button/g)).toHaveLength(6);
     expect(html.match(/aria-pressed="true"/g)).toHaveLength(1);
     expect(html).toContain('aria-controls="workspace-hotboard-panel"');
     expect(html).toContain('aria-label="工作区"');
@@ -59,7 +59,7 @@ describe("shared workspace frame with independent RSS and hot content", () => {
   });
   it("disables the rail while a page capture is in progress", () => {
     const html = renderToStaticMarkup(createElement(WorkspaceSwitcher, { workspace: "rss", captureBusy: true, onChange: () => {} }));
-    expect(html.match(/disabled=""/g)).toHaveLength(6);
+    expect(html.match(/disabled=""/g)).toHaveLength(5);
     expect(html).toContain('role="status"');
     expect(read("WorkspaceApp.tsx")).toContain("if (captureBusy) return;");
   });

@@ -188,7 +188,7 @@ interface UiState {
   menuOpen: boolean;
 
   select: (query: ArticleQuery, label: string) => void;
-  openArticle: (id: number | null) => void;
+  openArticle: (id: number | null, mode?: "formatted") => void;
   toggleUnreadOnly: () => void;
   toggleSort: () => void;
   setListAnchor: (offset: number) => void;
@@ -334,9 +334,9 @@ export const useUi = create<UiState>((set, get) => ({
     // Reset the paging anchor: a new selection always opens at the newest page.
     set({ query, queryLabel: label, listAnchor: 0 });
   },
-  openArticle: (id) => {
+  openArticle: (id, mode) => {
     const tabs = useReaderTabs.getState();
-    if (id != null) tabs.open(id);
+    if (id != null) tabs.open(id, false, { title: "", mode });
     else if (tabs.activeId) tabs.close([tabs.activeId]);
   },
   // Toggling a filter/sort rebuilds the list, so re-anchor to the newest page.

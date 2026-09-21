@@ -434,6 +434,7 @@ pub struct SmartCounts {
     unread: i64,
     starred: i64,
     read_later: i64,
+    agented: i64,
 }
 
 #[tauri::command]
@@ -444,6 +445,7 @@ pub async fn smart_counts(state: State<'_, AppState>) -> AppResult<SmartCounts> 
         unread,
         starred,
         read_later,
+        agented: db::agented_count(&conn)?,
     })
 }
 

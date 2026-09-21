@@ -368,7 +368,7 @@ export default function ArticleList({ onToast }: Props) {
   };
 
   const articleMenu = (a: ArticleSummary): MenuEntry[] => [
-    { icon: "open", label: t("articleList.menuOpen"), shortcut: "⏎", onClick: () => openArticle(a.id) },
+    { icon: "open", label: t("articleList.menuOpen"), shortcut: "⏎", onClick: () => openArticle(a.id, query.kind === "agented" ? "formatted" : undefined) },
     ...(a.url
       ? ([
           {
@@ -385,14 +385,6 @@ export default function ArticleList({ onToast }: Props) {
       label: a.isStarred ? t("articleList.menuUnstar") : t("articleList.menuStar"),
       shortcut: "S",
       onClick: () => actions.setStarred(a.id, !a.isStarred),
-    },
-    {
-      icon: a.readLater ? "bookmark-fill" : "bookmark",
-      label: a.readLater
-        ? t("articleList.menuRemoveReadLater")
-        : t("articleList.menuAddReadLater"),
-      shortcut: "B",
-      onClick: () => actions.setReadLater(a.id, !a.readLater),
     },
     {
       icon: a.isRead ? "circle" : "check",
@@ -437,7 +429,7 @@ export default function ArticleList({ onToast }: Props) {
           : e.key === "ArrowDown"
             ? Math.min(items.length - 1, cur < 0 ? 0 : cur + 1)
             : Math.max(0, cur < 0 ? 0 : cur - 1);
-    openArticle(items[next].id);
+    openArticle(items[next].id, query.kind === "agented" ? "formatted" : undefined);
   };
 
   return (
@@ -499,7 +491,7 @@ export default function ArticleList({ onToast }: Props) {
             <div className="glyph">
               <Icon name="check" size={22} />
             </div>
-            <div>{t("articleList.emptyState")}</div>
+            <div>{query.kind === "agented" ? t("articleList.agentedEmpty") : t("articleList.emptyState")}</div>
           </div>
         )}
 
@@ -551,8 +543,8 @@ export default function ArticleList({ onToast }: Props) {
                     role={selecting ? "listitem" : "option"}
                     id={`option-article-${a.id}`}
                     aria-selected={selecting ? undefined : selectedId === a.id}
-                    onClick={(event) => { if (selecting) openArticle(a.id); else useReaderTabs.getState().open(a.id, event.metaKey || event.ctrlKey, { title: a.title, feedId: a.feedId }); }}
-                    onAuxClick={(event) => { if (!selecting && event.button === 1) { event.preventDefault(); useReaderTabs.getState().open(a.id, true, { title: a.title, feedId: a.feedId }); } }}
+                    onClick={(event) => { if (selecting) openArticle(a.id, query.kind === "agented" ? "formatted" : undefined); else useReaderTabs.getState().open(a.id, event.metaKey || event.ctrlKey, { title: a.title, feedId: a.feedId, mode: query.kind === "agented" ? "formatted" : undefined }); }}
+                    onAuxClick={(event) => { if (!selecting && event.button === 1) { event.preventDefault(); useReaderTabs.getState().open(a.id, true, { title: a.title, feedId: a.feedId, mode: query.kind === "agented" ? "formatted" : undefined }); } }}
                     onContextMenu={(e) => {
                       e.preventDefault();
                       setMenu({ x: e.clientX, y: e.clientY, article: a });
@@ -579,11 +571,6 @@ export default function ArticleList({ onToast }: Props) {
                       {a.isStarred && (
                         <span className="art-star">
                           <Icon name="star-fill" size={12} />
-                        </span>
-                      )}
-                      {a.readLater && !a.isStarred && (
-                        <span className="art-star">
-                          <Icon name="bookmark-fill" size={12} />
                         </span>
                       )}
                     </div>

@@ -236,6 +236,13 @@ export default function Reader({ tab, onToast, active = true, onCaptureBusyChang
   const [automaticViewMode, setAutomaticViewMode] = useState<{ articleId: number; mode: ReaderViewMode } | null>(null);
   // AI is a per-article overlay, never a value written over Reading/Web memory.
   const [formattedArticleId, setFormattedArticleId] = useState<number | null>(saved.current?.mode === "formatted" ? id : null);
+  useEffect(() => {
+    const request = tab?.modeRequest;
+    if (!request) return;
+    if (request.mode === "formatted") setFormattedArticleId(id);
+    // Consume the request so a later manual Reading/Web choice survives tab switches.
+    useReaderTabs.setState(state => ({ tabs: state.tabs.map(item => item.id === tab.id && item.modeRequest?.id === request.id ? { ...item, modeRequest: undefined } : item) }));
+  }, [tab?.modeRequest?.id, id]);
   const [formatLanguage, setFormatLanguage] = useState<AiFormatLanguage>(DEFAULT_FORMAT_LANGUAGE);
   const formatJobs = useFormatJobs(s => s.jobs);
   const setFormatJobs = useFormatJobs(s => s.setJobs);
@@ -1243,15 +1250,6 @@ export default function Reader({ tab, onToast, active = true, onCaptureBusyChang
           aria-pressed={a.isStarred}
         >
           <Icon name={a.isStarred ? "star-fill" : "star"} size={16} />
-        </button>
-        <button
-          className={`tb-btn ${a.readLater ? "on" : ""}`}
-          onClick={() => actions.setReadLater(a.id, !a.readLater)}
-          title={t("reader.tbReadLater")}
-          aria-label={t("reader.tbReadLater")}
-          aria-pressed={a.readLater}
-        >
-          <Icon name={a.readLater ? "bookmark-fill" : "bookmark"} size={16} />
         </button>
         <button
           className={`tb-btn ${a.tags.length > 0 ? "on" : ""}`}

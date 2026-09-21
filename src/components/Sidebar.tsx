@@ -574,11 +574,11 @@ export default function Sidebar({
           onClick={() => select({ kind: "starred" }, t("smart.starred"))}
         />
         <SbItem
-          icon="bookmark"
-          label={t("smart.readLater")}
-          count={showCounts ? counts.data?.readLater : undefined}
-          active={isActive({ kind: "readLater" })}
-          onClick={() => select({ kind: "readLater" }, t("smart.readLater"))}
+          icon="sparkle"
+          label="Agented"
+          count={showCounts ? counts.data?.agented : undefined}
+          active={isActive({ kind: "agented" })}
+          onClick={() => select({ kind: "agented" }, "Agented")}
         />
 
         <div className="sb-section-title">

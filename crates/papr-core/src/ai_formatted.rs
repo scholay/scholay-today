@@ -281,7 +281,7 @@ mod tests {
         let after: i64 = conn
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(before, 19);
+        assert_eq!(before, 20);
         assert_eq!(after, before);
         assert_eq!(
             conn.query_row("SELECT count(*) FROM article_ai_formatted", [], |row| row

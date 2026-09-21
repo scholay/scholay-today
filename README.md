@@ -8,6 +8,10 @@ MCP server name are **scholay-today**, and the sidebar uses the supplied mark + 
 
 面向 macOS 与 Windows 的本地科研信息工作台。提供 RSS / 国内外热榜、原网页浏览、AI formatted、带图 Markdown/JSON 导出，以及可供智能体管理订阅和目录的本机 MCP 服务。
 
+RSS 的 **Agented** 视图与全部、未读、星标平级，显示已有 Agent 清洗结果的文章，直接在原有阅读区打开保存的 Markdown。它替代稍后读入口与独立文库工作区；历史稍后读数据保留，不会被当作清洗结果。
+
+日历中点击日期查看右侧卡片，点击卡片或其中一条依据高亮对应单日或完整区间，其他事件标记保持可见。高亮详情中的起止日期可分别定位；再次点击、选择另一日期或按 Escape 可取消高亮。
+
 ## 欢迎加入：RSS 项目共建
 
 欢迎各类阅读爱好者加入，不限专业、不限技术背景！无论你喜欢科研、科技、人文、新闻，还是日常阅读，都可以一起分享优质信息源、交流阅读方法、反馈使用体验，参与 scholay today 的共建。

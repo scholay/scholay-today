@@ -188,6 +188,7 @@ pub enum ArticleQuery {
     Unread,
     Starred,
     ReadLater,
+    Agented,
     Feed(i64),
     Folder(i64),
     Tag(i64),

@@ -202,7 +202,7 @@ export default function App({ active = true, onCaptureBusyChange, onRequestActiv
       all: t("smart.all"),
       unread: t("smart.unread"),
       starred: t("smart.starred"),
-      readLater: t("smart.readLater"),
+      agented: "Agented",
     };
     if (startupView !== "last" && labels[startupView]) {
       useUi
@@ -219,6 +219,7 @@ export default function App({ active = true, onCaptureBusyChange, onRequestActiv
             // active when the view was last selected — for a smart view it
             // would now be stale if the user has since changed languages, so
             // re-translate it from the current locale.
+            if (saved.query.kind === "readLater") saved.query = { kind: "all" };
             const label = labels[saved.query.kind] ?? saved.label ?? "";
             useUi.getState().select(saved.query, label);
           }
@@ -282,6 +283,8 @@ export default function App({ active = true, onCaptureBusyChange, onRequestActiv
     const un = listen("articles-cleaned", () => {
       void qc.invalidateQueries({ queryKey: ["structured"] });
       void qc.invalidateQueries({ queryKey: ["structured-documents"] });
+      void qc.invalidateQueries({ queryKey: ["articles"] });
+      void qc.invalidateQueries({ queryKey: ["counts"] });
     });
     return () => { void un.then((f) => f()); };
   }, [qc]);
@@ -505,7 +508,7 @@ export default function App({ active = true, onCaptureBusyChange, onRequestActiv
       const go = (delta: number) => {
         if (items.length === 0) return;
         const next = items[Math.min(items.length - 1, Math.max(0, idx + delta))];
-        if (next) st.openArticle(next.id);
+        if (next) st.openArticle(next.id, st.query.kind === "agented" ? "formatted" : undefined);
       };
 
       switch (e.key.toLowerCase()) {
@@ -519,13 +522,6 @@ export default function App({ active = true, onCaptureBusyChange, onRequestActiv
             e.preventDefault();
             actions.setStarred(sel.id, !sel.isStarred);
             showToast(sel.isStarred ? t("app.starRemoved") : t("app.starred"), "S");
-          }
-          break;
-        case "b":
-          if (sel) {
-            e.preventDefault();
-            actions.setReadLater(sel.id, !sel.readLater);
-            showToast(sel.readLater ? t("app.readLaterRemoved") : t("app.readLaterAdded"), "B");
           }
           break;
         case "u":

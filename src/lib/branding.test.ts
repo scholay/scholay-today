@@ -41,10 +41,10 @@ describe("scholay today display branding with compatible local identity", () => 
       expect(html).not.toContain(`>${BRAND_WORDMARK}</span>`);
       expect(html).toContain('src="/scholay-logo.png"');
       expect(html).not.toContain(`<span>${APP_SHORT_NAME}</span>`);
-      expect(html.match(/<button/g)).toHaveLength(7);
+      expect(html.match(/<button/g)).toHaveLength(6);
       expect(html).toContain("workspace-rail-settings");
       expect(html.match(/aria-pressed="true"/g)).toHaveLength(1);
-      expect(html.match(/<svg/g)?.length).toBeGreaterThanOrEqual(6);
+      expect(html.match(/<svg/g)?.length).toBeGreaterThanOrEqual(5);
     }
   });
   it("uses a small title-strip icon without changing other brand placements", () => {

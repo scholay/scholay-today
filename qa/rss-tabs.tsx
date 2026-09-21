@@ -15,12 +15,13 @@ const paragraphs = ["从提出假设到验证结果，人工智能正在进入�
 const feeds: Feed[] = ["Nature", "MIT Technology Review", "机器之心", "Science"].map((title, i) => ({ id: i + 1, feedUrl: `https://example.invalid/feed/${i}`, siteUrl: "https://example.invalid/", title, description: null, faviconUrl: null, folderId: 1, sourceType: "rss", lastFetchedAt: null, fetchError: null, unreadCount: 3, refreshIntervalMin: null, autoTranslate: false, openMode: "reader" }));
 const articles: ArticleDetail[] = titles.map((title, i) => ({ id: i + 1, feedId: i % 4 + 1, feedTitle: feeds[i % 4].title, sourceType: "rss", title, author: null, url: `https://example.invalid/article/${i + 1}`, contentHtml: paragraphs.concat(paragraphs).map(p => `<p>${p}</p>`).join(""), snippet: paragraphs[i % 4], extractedHtml: null, imageUrl: null, publishedAt: "2026-09-21T08:00:00Z", isRead: false, isStarred: false, readLater: false, aiSummary: null, translatedHtml: null, translatedLang: null, enclosures: [], tags: [] }));
 const drafts: AiFormattedDraft[] = articles.map(a => ({ articleId: a.id, captureId: `fixture-${a.id}`, sourceUrl: a.url!, sourceTitle: a.title, capturedAt: "2026-09-21T08:00:00Z", generatedAt: "2026-09-21T08:05:00Z", model: "预览文档", language: "zh", markdown: `# ${a.title}\n\n${paragraphs[0]}\n\n## 从工具到研究伙伴\n\n${paragraphs[1]}\n\n${paragraphs[2]}\n\n> 更好的工具，让研究者有时间提出更好的问题。\n\n## 新的研究工作流\n\n${paragraphs[3]}\n\n${paragraphs[1]}\n\n## 仍需回答的问题\n\n${paragraphs[2]}\n\n${paragraphs[3]}`, sourceText: paragraphs.join("\n"), sourceCharCount: 500, sourceTruncated: false, warnings: [] }));
+const cleaned = drafts.slice(0, 3).map(d => ({ articleId: d.articleId, cleaned: true, captureId: d.captureId, markdown: d.markdown, sourceUrl: d.sourceUrl, sourceKind: "rss", words: 500, images: 0, cleanedAt: d.generatedAt, warnings: [] }));
 let sequence = 0;
 const callbacks = new Map<number, (value: any) => void>();
 const listeners = new Map<number, { event: string; handler: number }>();
 const pages = new Map<string, { requestId: string; instance: number; url: string }>();
 const emit = (event: string, payload: any) => { for (const [id, listener] of listeners) if (listener.event === event) callbacks.get(listener.handler)?.({ event, id, payload }); };
-const matching = (args: any) => articles.filter(a => (!args.unreadOnly || !a.isRead) && (args.query?.kind !== "feed" || a.feedId === args.query.value) && (args.query?.kind !== "starred" || a.isStarred) && (args.query?.kind !== "later" || a.readLater));
+const matching = (args: any) => articles.filter(a => (!args.unreadOnly || !a.isRead) && (args.query?.kind !== "feed" || a.feedId === args.query.value) && (args.query?.kind !== "starred" || a.isStarred) && (args.query?.kind !== "agented" || cleaned.some(d => d.articleId === a.id)));
 Object.defineProperty(window, "__TAURI_EVENT_PLUGIN_INTERNALS__", { configurable: true, value: { unregisterListener: (_: string, id: number) => listeners.delete(id) } });
 Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {
   metadata: { currentWindow: { label: "main" }, currentWebview: { label: "main" } },
@@ -30,12 +31,13 @@ Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value
     if (command === "plugin:event|unlisten") { listeners.delete(args.eventId); return; }
     if (command === "list_feeds") return feeds;
     if (command === "list_folders") return [{ id: 1, name: "人工智能", sortOrder: 0 }];
-    if (command === "smart_counts") return { all: articles.length, unread: articles.filter(a => !a.isRead).length, today: articles.length, starred: articles.filter(a => a.isStarred).length, readLater: articles.filter(a => a.readLater).length };
+    if (command === "smart_counts") return { all: articles.length, unread: articles.filter(a => !a.isRead).length, today: articles.length, starred: articles.filter(a => a.isStarred).length, readLater: articles.filter(a => a.readLater).length, agented: cleaned.length };
     if (command === "list_articles") return matching(args).slice(args.offset ?? 0, (args.offset ?? 0) + (args.limit ?? 100));
     if (command === "article_index") { const index = matching(args).findIndex(a => a.id === args.articleId); return index >= 0 ? index : null; }
     if (command === "get_article") { const a = articles.find(a => a.id === args.id); if (!a) throw { code: "articleNotFound" }; return { ...a }; }
     if (command === "get_ai_formatted") return drafts.find(d => d.articleId === args.articleId) ?? null;
-    if (command === "article_structured_document" || command === "get_setting") return null;
+    if (command === "article_structured_document") return cleaned.find(d => d.articleId === args.articleId) ?? null;
+    if (command === "get_setting") return null;
     if (["list_tags", "list_highlights", "list_searches", "get_pending_deep_links"].includes(command)) return [];
     if (command === "mark_read" || command === "mark_starred" || command === "mark_read_later") { const a = articles.find(a => a.id === args.id); if (a) { if (command === "mark_read") a.isRead = args.read; if (command === "mark_starred") a.isStarred = args.starred; if (command === "mark_read_later") a.readLater = args.value; } return; }
     if (command === "open_page_view") { const old = pages.get(args.viewId); const page = old ?? { requestId: args.requestId, instance: ++sequence, url: args.resumeUrl ?? args.url }; pages.set(args.viewId, page); emit("page-view-status", { ...page, viewId: args.viewId, phase: "loaded" }); return !!old; }
@@ -56,7 +58,7 @@ useUi.setState({ mode: "light", palette: "paper", query: { kind: "folder", value
 const tabs = articles.slice(0, 4).map(a => ({ id: `rss-${a.id}-fixture`, articleId: a.id, title: a.title, feedId: a.feedId, restored: true, reading: { ...defaultReadingState(), mode: (a.id === 1 ? "formatted" : a.id === 2 ? "web" : "reader") as "formatted" | "web" | "reader" } }));
 useReaderTabs.setState({ tabs, activeId: tabs[0].id, recent: [tabs[0].id] });
 const qc = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity, refetchOnWindowFocus: false } } });
-for (const a of articles) { qc.setQueryData(["article", a.id], a); qc.setQueryData(["ai-formatted", a.id], drafts[a.id - 1]); qc.setQueryData(["structured", a.id], null); }
+for (const a of articles) { qc.setQueryData(["article", a.id], a); qc.setQueryData(["ai-formatted", a.id], drafts[a.id - 1]); qc.setQueryData(["structured", a.id], cleaned.find(d => d.articleId === a.id) ?? null); }
 document.documentElement.dataset.platform = "mac";
 createRoot(document.getElementById("root")!).render(<QueryClientProvider client={qc}><ErrorBoundary><WorkspaceApp/></ErrorBoundary></QueryClientProvider>);
 // Read-only status is exposed for browser QA; interactions use production UI.

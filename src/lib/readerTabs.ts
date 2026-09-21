@@ -23,6 +23,8 @@ export interface ReadingTab {
   reading: ReadingState;
   /** Restored sessions must not start automatic paid/network work. */
   restored: boolean;
+  /** Explicit mode request when an already-open article is chosen from Agented. */
+  modeRequest?: { mode: ReaderMode; id: string };
 }
 export interface TabSession {
   tabs: ReadingTab[];
@@ -79,7 +81,7 @@ export function removeTabs(s: TabSession, ids: string[]): TabSession {
 interface ReaderTabs extends TabSession {
   closed: ReadingTab[];
   captureTabId: string | null;
-  open: (articleId: number, background?: boolean, metadata?: { title: string; feedId?: number }) => void;
+  open: (articleId: number, background?: boolean, metadata?: { title: string; feedId?: number; mode?: ReaderMode }) => void;
   activate: (id: string) => void;
   close: (ids: string[], remember?: boolean) => void;
   reopen: () => void;
@@ -97,8 +99,13 @@ export const useReaderTabs = create<ReaderTabs>((set, get) => ({
     const s = get();
     if (s.captureTabId || !Number.isSafeInteger(articleId) || articleId <= 0) return;
     const existing = s.tabs.find(t => t.articleId === articleId);
-    if (existing) { if (!background) set(activateTab(s, existing.id)); return; }
-    const tab: ReadingTab = { id: `rss-${articleId}-${crypto.randomUUID()}`, articleId, title: metadata?.title ?? "", feedId: metadata?.feedId, reading: defaultReadingState(), restored: false };
+    if (existing) {
+      const next = metadata?.mode ? { ...s, tabs: s.tabs.map(t => t.id === existing.id ? { ...t, reading: { ...t.reading, mode: metadata.mode! }, modeRequest: { mode: metadata.mode!, id: crypto.randomUUID() } } : t) } : s;
+      if (!background) set(activateTab(next, existing.id));
+      else if (next !== s) set(next);
+      return;
+    }
+    const tab: ReadingTab = { id: `rss-${articleId}-${crypto.randomUUID()}`, articleId, title: metadata?.title ?? "", feedId: metadata?.feedId, reading: { ...defaultReadingState(), mode: metadata?.mode ?? null }, restored: false };
     const next = { tabs: [...s.tabs, tab], activeId: s.activeId, recent: s.recent };
     set(background ? next : activateTab(next, tab.id));
   },

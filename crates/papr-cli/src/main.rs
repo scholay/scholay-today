@@ -1677,6 +1677,7 @@ fn scope_label(query: &ArticleQuery, unread_only: bool) -> String {
     let base = match query {
         ArticleQuery::Starred => "starred",
         ArticleQuery::ReadLater => "read-later",
+        ArticleQuery::Agented => "agented",
         ArticleQuery::Feed(_) => "in feed",
         ArticleQuery::Folder(_) => "in folder",
         ArticleQuery::Tag(_) => "tagged",
@@ -1705,6 +1706,7 @@ fn count_articles(
             format!("SELECT count(*) FROM articles WHERE is_starred = 1{unread}"),
             None,
         ),
+        ArticleQuery::Agented => (format!("SELECT count(*) FROM articles WHERE id IN (SELECT article_id FROM article_structured) AND feed_id NOT IN (SELECT feed_id FROM library_archived_feeds){unread}"), None),
         ArticleQuery::ReadLater => (
             format!("SELECT count(*) FROM articles WHERE read_later = 1{unread}"),
             None,

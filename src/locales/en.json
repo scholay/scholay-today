@@ -42,6 +42,7 @@
     "loadError": "Couldn't play this episode"
   },
   "smart": {
+    "agented": "Agented",
     "all": "All Articles",
     "unread": "Unread",
     "starred": "Starred",
@@ -146,6 +147,7 @@
     "unreadOnly": "Unread only",
     "markAllRead": "Mark all as read (⇧A)",
     "markRead": "Mark as read",
+    "agentedEmpty": "Articles processed by an Agent will appear here.",
     "emptyState": "No articles here — enjoy the calm",
     "loadError": "Couldn't load articles"
   },

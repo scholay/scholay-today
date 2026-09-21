@@ -42,6 +42,7 @@
     "loadError": "このエピソードを再生できませんでした"
   },
   "smart": {
+    "agented": "Agented",
     "all": "すべての記事",
     "unread": "未読",
     "starred": "スター付き",
@@ -146,6 +147,7 @@
     "unreadOnly": "未読のみ",
     "markAllRead": "すべて既読にする (⇧A)",
     "markRead": "既読にする",
+    "agentedEmpty": "Agent が整理した記事がここに表示されます。",
     "emptyState": "記事はありません — ひと息どうぞ",
     "loadError": "記事を読み込めませんでした"
   },

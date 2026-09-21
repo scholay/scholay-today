@@ -33,18 +33,17 @@ describe("cleaned library scopes", () => {
 });
 
 describe("files workspace", () => {
-  it("keeps the cleaned tree off the RSS pane and renders stored Markdown", () => {
+  it("retires the separate library workspace in favor of RSS Agented", () => {
     const shell = read("WorkspaceApp.tsx");
     const switcher = read("components/WorkspaceSwitcher.tsx");
     expect(switcher).not.toContain('value: "home"');
-    expect(switcher).toContain('value: "files"');
+    expect(switcher).not.toContain('value: "files"');
     expect(switcher).toContain('value: "rss"');
     expect(switcher).toContain('icon: "logo"');
-    expect(switcher).toContain('icon: "file"');
     expect(switcher).toContain("workspace-rail-settings");
     expect(shell).not.toContain("HomeBoard");
-    expect(shell).toContain("<FilesBoard");
-    expect(shell).toContain('id="workspace-files-panel"');
+    expect(shell).not.toContain("<FilesBoard");
+    expect(shell).not.toContain('id="workspace-files-panel"');
     expect(shell).toContain('<App active={workspace === "rss"}');
     expect(read("library/FilesBoard.tsx")).toContain("listStructuredDocuments");
     expect(read("library/FilesBoard.tsx")).toContain("<StructuredReader");

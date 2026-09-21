@@ -42,6 +42,7 @@
     "loadError": "无法播放这一集"
   },
   "smart": {
+    "agented": "Agented",
     "all": "全部文章",
     "unread": "未读",
     "starred": "星标",
@@ -146,6 +147,7 @@
     "unreadOnly": "仅未读",
     "markAllRead": "全部标为已读 (⇧A)",
     "markRead": "标为已读",
+    "agentedEmpty": "经 Agent 整理的文章会出现在这里。",
     "emptyState": "这里没有文章了 — 享受一下空白",
     "loadError": "文章加载失败"
   },

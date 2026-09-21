@@ -356,3 +356,24 @@ it("collapses the hot reading area without closing tabs and opens it on a foregr
   expect(commands("close_page_view")).toHaveLength(0);
   localStorage.removeItem(HOT_UI_KEY);
 });
+
+it("Agented opens stored cleaned Markdown, including an already-open Web tab, without generation", async () => {
+  qc.setQueryData(["ai-formatted", 1], null);
+  qc.setQueryData(["structured", 1], { articleId: 1, cleaned: true, markdown: "## Agent result\n\nPersisted clean body.", sourceKind: "rss", words: 10, images: 0, warnings: [] });
+  await mount(); await open(1);
+  expect(commands("open_page_view")).toHaveLength(1);
+  const originalTab = useReaderTabs.getState().activeId;
+  await act(() => useUi.setState({ query: { kind: "agented" } }));
+  await act(() => useUi.getState().openArticle(1, "formatted")); await settle();
+  expect(useReaderTabs.getState().activeId).toBe(originalTab);
+  expect(host.querySelector(".ai-formatted-body")?.textContent).toContain("Persisted clean body.");
+  expect(commands("ai_format_page")).toHaveLength(0);
+  expect(commands("capture_page_view")).toHaveLength(0);
+  await click('button[title="reader.readingMode"]'); await settle();
+  await open(2); await open(1);
+  expect(host.querySelector(".ai-formatted-body")).toBeNull();
+  await act(() => useReaderTabs.getState().close([originalTab!]));
+  await act(() => useUi.getState().openArticle(1, "formatted")); await settle();
+  expect(host.querySelector(".ai-formatted-body")?.textContent).toContain("Persisted clean body.");
+  expect(commands("ai_format_page")).toHaveLength(0);
+});

@@ -212,6 +212,7 @@ export interface SmartCounts {
   unread: number;
   starred: number;
   readLater: number;
+  agented: number;
 }
 
 /** A user highlight / annotation (mirrors models::Highlight). */
@@ -233,6 +234,7 @@ export type ArticleQuery =
   | { kind: "unread" }
   | { kind: "starred" }
   | { kind: "readLater" }
+  | { kind: "agented" }
   | { kind: "feed"; value: number }
   | { kind: "folder"; value: number }
   | { kind: "tag"; value: number };
