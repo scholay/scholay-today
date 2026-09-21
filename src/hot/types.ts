@@ -47,4 +47,5 @@ export interface HotUiState {
   itemId: string | null;
   view: "overview" | "source";
   search: string;
+  readerHidden: boolean;
 }

@@ -43,6 +43,21 @@ afterEach(() => {
 });
 
 describe("board pane drag, keyboard and persistence", () => {
+  it("lets hot lists grow to three card columns and restores the split after hiding the reader", () => {
+    render();
+    key(1, "End");
+    expect(current(1)).toBe(832); // 1440 - 248 sidebar - 360 reader
+    render("hotboard", false);
+    expect(handles()).toHaveLength(1);
+    expect(current()).toBe(248);
+    render();
+    expect(current(1)).toBe(832);
+    render("labels");
+    key(1, "End");
+    expect(current(1)).toBe(560);
+    render();
+    expect(current(1)).toBe(832);
+  });
   it("fits columns to layout pixels when application zoom scales the screen rectangle", () => {
     const logicalWidth = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(800);
     width = 1000; // 125% UI scale

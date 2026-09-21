@@ -419,7 +419,25 @@ fn is_bilibili_host(url: &url::Url) -> bool {
 
 #[cfg(target_os = "macos")]
 fn page_view_user_agent(url: &url::Url) -> Option<&'static str> {
-    is_bilibili_host(url).then_some(MACOS_DESKTOP_SAFARI_USER_AGENT)
+    (is_bilibili_host(url) || is_baidu_host(url)).then_some(MACOS_DESKTOP_SAFARI_USER_AGENT)
+}
+
+fn is_baidu_host(url: &url::Url) -> bool {
+    url.host_str().is_some_and(|host| host == "baidu.com" || host.ends_with(".baidu.com"))
+}
+
+// A verification page is a transient step, not a durable reading position.
+// Apply this only when recreating a view; live verification navigation and
+// its cookies/query parameters must remain entirely under the site's control.
+fn page_resume_url(original: &url::Url, resume: Option<&str>) -> Result<url::Url, String> {
+    let destination = resume.map(parse_url).transpose()?.unwrap_or_else(|| original.clone());
+    if is_baidu_host(original)
+        && destination.host_str() == Some("wappass.baidu.com")
+        && destination.path().starts_with("/static/captcha/")
+    {
+        return Ok(original.clone());
+    }
+    Ok(destination)
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -570,7 +588,7 @@ pub async fn open_page_view(
             let _ = app.emit_to(status_target(), "page-view-evicted", serde_json::json!({ "viewId": victim, "requestId": retired.request_id, "instance": retired.instance, "url": url, "factor": zoom.factor, "mode": zoom_mode_label(zoom.mode) }));
         }
     }
-    let destination = resume_url.as_deref().map(parse_url).transpose()?.unwrap_or_else(|| parsed.clone());
+    let destination = page_resume_url(&parsed, resume_url.as_deref())?;
     let instance = ACTIVE_INSTANCE.fetch_add(1, Ordering::AcqRel) + 1;
     let request = Arc::new(PageRequest {
         view_id: id.clone(),
@@ -606,7 +624,8 @@ pub async fn open_page_view(
     // WKWebView's default UA omits the Safari version/product tokens. Bilibili
     // treats that otherwise-current WebKit engine as an obsolete browser and
     // can redirect valid links to its download fallback. Keep the override
-    // narrow: it follows this webview through Bilibili redirects, while every
+    // narrow: Bilibili and Baidu use desktop Safari's full product tokens;
+    // it follows the webview through verification redirects, while every
     // unrelated publisher retains the native default UA.
     let user_agent = page_view_user_agent(&parsed);
     let mut builder = WebviewBuilder::new(&id, WebviewUrl::External(destination))
@@ -1337,6 +1356,25 @@ mod tests {
             page_view_user_agent(&parse_url("https://news.sciencenet.cn/article").unwrap()),
             None
         );
+    }
+
+    #[test]
+    fn baidu_resume_does_not_replay_a_saved_captcha() {
+        let original = parse_url("https://www.baidu.com/s?wd=research").unwrap();
+        let challenge = "https://wappass.baidu.com/static/captcha/tuxing_v2.html?backurl=expired&signature=expired";
+        assert_eq!(page_resume_url(&original, Some(challenge)).unwrap(), original);
+        let result = "https://www.baidu.com/s?wd=research&pn=10";
+        assert_eq!(page_resume_url(&original, Some(result)).unwrap().as_str(), result);
+        let other = parse_url("https://example.org/").unwrap();
+        assert_eq!(page_resume_url(&other, Some(challenge)).unwrap().as_str(), challenge);
+        assert!(!is_baidu_host(&parse_url("https://baidu.com.evil.example/").unwrap()));
+        assert!(!is_baidu_host(&parse_url("https://notbaidu.com/").unwrap()));
+        for url in ["https://www.baidu.com/s?wd=research", "https://wappass.baidu.com/static/captcha/tuxing_v2.html"] {
+            let parsed = parse_url(url).unwrap();
+            assert!(is_baidu_host(&parsed));
+            #[cfg(target_os = "macos")]
+            assert_eq!(page_view_user_agent(&parsed), Some(MACOS_DESKTOP_SAFARI_USER_AGENT));
+        }
     }
 
     #[test]

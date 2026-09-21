@@ -128,6 +128,10 @@
 @media (max-width: 1160px) { .hot-article { padding-left: 24px; padding-right: 24px; } .hot-attribution { padding-left: 24px; padding-right: 24px; } .hot-breadcrumb strong { max-width: 120px; } }
 @media (prefers-reduced-motion: reduce) { .hot-spinner, .hot-icon-button.is-spinning > svg { animation: none; } }
 .hot-workspace.hot-tabbed-workspace { grid-template-columns: var(--hot-sidebar-width) var(--hot-list-width) minmax(0, 1fr); }
+.hot-workspace.hot-tabbed-workspace.is-reader-hidden { grid-template-columns: var(--hot-sidebar-width) minmax(0, 1fr); }
+.hot-workspace .hot-reader-toggle { display: inline-flex; align-items: center; flex-shrink: 0; gap: 4px; padding: 4px 6px; border-radius: 5px; color: var(--muted); font-size: 11px; }
+.hot-reader-toggle:hover { background: var(--hover); }
+.hot-reader-toggle svg { transform: rotate(180deg); }
 .hot-tabbed-workspace > .hot-workspace-toolbar { grid-column: 2; padding: 0 10px; gap: 4px; border-right: 1px solid var(--hair); }
 .hot-tabbed-workspace .hot-breadcrumb { display: none; }
 .hot-tabbed-workspace .hot-search { min-width: 60px; margin-left: 0; }

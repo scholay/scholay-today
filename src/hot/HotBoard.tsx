@@ -45,7 +45,7 @@ export default function HotBoard({ active }: { active: boolean }) {
   const orderedSources = useMemo(() => sortHotSources(sources, ui.favorites), [sources, ui.favorites]);
   const filteredSources = orderedSources.filter((source) => matchesHotFilter(source, ui.filter) && (!ui.favoritesOnly || ui.favorites.includes(source.id)));
   const selectedSource = ui.view === "source" ? sources.find((source) => source.id === ui.sourceId) : undefined;
-  const panes = useBoardPanes("hotboard", true, active);
+  const panes = useBoardPanes("hotboard", !ui.readerHidden, active);
   const requestedSources = selectedSource ? [selectedSource] : filteredSources;
   const snapshots = useQueries({ queries: requestedSources.map((source) => ({
     queryKey: snapshotKey(source.id),
@@ -86,7 +86,7 @@ export default function HotBoard({ active }: { active: boolean }) {
     patchUi({ sourceId: source.id, view: "source" });
   };
   const openItem = (source: HotSource, item: HotItem, background = false) => {
-    if (!background) setAuthorizationOpen(false);
+    if (!background) { setAuthorizationOpen(false); patchUi({ readerHidden: false }); }
     useReadingGroups.getState().openHot(source, item, bySource.get(source.id)?.data?.fetched_at, background);
   };
   const refreshSource = async (source: HotSource) => {
@@ -112,14 +112,14 @@ export default function HotBoard({ active }: { active: boolean }) {
       if (!["j", "k"].includes(event.key) || !selectedItems.length) return;
       const index = selectedItems.findIndex(item => item.id === selectedItem?.id);
       const next = index < 0 ? event.key === "j" ? 0 : selectedItems.length - 1 : Math.min(selectedItems.length - 1, Math.max(0, index + (event.key === "j" ? 1 : -1)));
-      event.preventDefault(); useReadingGroups.getState().openHot(selectedSource, selectedItems[next], selectedSnapshot?.fetched_at);
+      event.preventDefault(); patchUi({ readerHidden: false }); useReadingGroups.getState().openHot(selectedSource, selectedItems[next], selectedSnapshot?.fetched_at);
     };
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
   }, [active, selectedSource, selectedItems, selectedItem?.id, selectedSnapshot?.fetched_at, authorizationOpen]);
   useEffect(() => { setAuthorizationOpen(false); }, [activeId]);
 
-  return <section ref={panes.hostRef} style={panes.style} className={`hot-workspace hot-tabbed-workspace ${selectedSource ? "is-source" : "is-overview"}`} aria-label="独立热榜工作区">
+  return <section ref={panes.hostRef} style={panes.style} className={`hot-workspace hot-tabbed-workspace ${ui.readerHidden ? "is-reader-hidden" : ""} ${selectedSource ? "is-source" : "is-overview"}`} aria-label="独立热榜工作区">
     <aside className="hot-sidebar" aria-label="热榜来源">
       {isMac && <div className="titlebar" data-tauri-drag-region />}
       <nav className="hot-main-nav">
@@ -139,6 +139,7 @@ export default function HotBoard({ active }: { active: boolean }) {
       <label className="hot-search"><Icon name="search" size={14}/><input aria-label="搜索热榜本地缓存" placeholder="搜索本地缓存" value={ui.search} onChange={(event) => patchUi({ search: event.target.value })}/>{ui.search && <button className="hot-icon-button" aria-label="清除热榜搜索" onClick={() => patchUi({ search: "" })}><Icon name="x" size={13}/></button>}</label>
       <button className={`hot-icon-button ${ui.paused ? "is-active" : ""}`} onClick={() => patchUi({ paused: !ui.paused })} aria-pressed={ui.paused} title={ui.paused ? "已暂停自动更新；点击恢复" : "前台每 10 分钟检查更新；点击暂停"} aria-label={ui.paused ? "恢复热榜自动更新" : "暂停热榜自动更新"}><Icon name={ui.paused ? "play" : "pause"} size={15}/></button>
       <button className={`hot-icon-button ${refreshing ? "is-spinning" : ""}`} disabled={refreshing || requestedSources.length === 0} onClick={refreshVisible} title="刷新当前来源" aria-label="刷新当前热榜"><Icon name="refresh" size={15}/></button>
+      <button className="hot-reader-toggle" aria-expanded={!ui.readerHidden} aria-controls="hot-reading-area" onClick={() => { setAuthorizationOpen(false); patchUi({ readerHidden: !ui.readerHidden }); }} title={ui.readerHidden ? "展开阅读区，恢复之前的标签" : "收起阅读区，铺满热榜清单"}><Icon name="panel-left" size={15}/><span>{ui.readerHidden ? "展开阅读区" : "收起阅读区"}</span></button>
     </header>
 
     {!selectedSource ? <main className="hot-overview">
@@ -161,11 +162,11 @@ export default function HotBoard({ active }: { active: boolean }) {
       <section className="hot-ranking" aria-label={`${selectedSource.name}完整榜单`}>
         <div className="hot-ranking-header"><div><h1>{selectedSource.name}</h1><p>{kindLabel[selectedSource.kind]} · {selectedSnapshot?.items.length ?? 0} 条</p></div><button className={`hot-icon-button ${ui.favorites.includes(selectedSource.id) ? "is-active" : ""}`} aria-label={`${ui.favorites.includes(selectedSource.id) ? "取消关注" : "关注"}${selectedSource.name}`} aria-pressed={ui.favorites.includes(selectedSource.id)} onClick={() => favorite(selectedSource.id)}><Icon name={ui.favorites.includes(selectedSource.id) ? "star-fill" : "star"} size={16}/></button></div>
         <SnapshotStatus source={selectedSource} snapshot={selectedSnapshot} loading={selectedResult?.isFetching ?? false} error={selectedResult?.error} onRefresh={() => void refreshSource(selectedSource)}/>
-        <button className="hot-source-access" onClick={() => setAuthorizationOpen(true)}><Icon name="globe" size={13}/>登录 / 授权</button>
+        <button className="hot-source-access" onClick={() => { patchUi({ readerHidden: false }); setAuthorizationOpen(true); }}><Icon name="globe" size={13}/>登录 / 授权</button>
         <div className="hot-ranking-scroll">{selectedItems.map((item) => <button key={item.id} className={`hot-ranking-item ${selectedItem?.id === item.id ? "is-selected" : ""}`} onClick={event => openItem(selectedSource, item, event.ctrlKey || event.metaKey)} onAuxClick={event => { if (event.button === 1) { event.preventDefault(); openItem(selectedSource, item, true); } }} aria-current={selectedItem?.id === item.id ? "true" : undefined}><span className={`hot-rank ${item.rank <= 3 ? "is-top" : ""}`}>{item.rank}</span><span><strong>{item.title}</strong>{item.description && <p>{item.description}</p>}<small>{item.heat || kindLabel[selectedSource.kind]}{item.published_at && ` · ${hotTime(item.published_at)}`}</small></span></button>)}{selectedItems.length === 0 && <div className="hot-empty"><p>{selectedResult?.isFetching ? "正在获取榜单…" : ui.search ? "没有匹配的缓存条目" : "暂无可显示的条目"}</p></div>}</div>
       </section>
     </>}
-    <section className="hot-detail" aria-label="热榜条目详情">
+    {!ui.readerHidden && <section id="hot-reading-area" className="hot-detail" aria-label="热榜条目详情">
       <WorkspaceReadingTabs group="hot" active={active}/>
       <div id="reading-panel-hot" className="hot-tab-panel" role="tabpanel" aria-label={selectedTab?.title || "热榜阅读区"} aria-labelledby={selectedTab ? `reading-tab-hot-${selectedTab.id}` : undefined}>
         {authorizationOpen && selectedSource ? <div className="hot-detail-scroll"><SourceAuthorization key={selectedSource.id} source={selectedSource} onClose={() => setAuthorizationOpen(false)} onRefresh={() => void refreshSource(selectedSource)} onBrowse={target => {
@@ -176,7 +177,7 @@ export default function HotBoard({ active }: { active: boolean }) {
         }}/></div> : selectedTab ? <HotTabReader key={selectedTab.id} tab={selectedTab} active={active}/>
           : <div className="reading-workspace-empty"><Icon name="globe" size={28}/><h2>打开一条热榜，接着读</h2><p>点击左侧条目打开标签。切换来源不会关闭已打开的内容。</p></div>}
       </div>
-    </section>
-    {active && <BoardResizeHandles panes={panes} hasList label="热榜" visible/>}
+    </section>}
+    {active && <BoardResizeHandles panes={panes} hasList={!ui.readerHidden} label="热榜" visible/>}
   </section>;
 }

@@ -14,6 +14,8 @@ import { enqueuePageView } from "./pageViewQueue";
 import type { ArticleDetail, AiFormattedDraft } from "../types";
 import type { PageCapture } from "../types";
 import HotTabReader from "../hot/HotTabReader";
+import HotBoard from "../hot/HotBoard";
+import { HOT_UI_KEY } from "../hot/helpers";
 import WorkspaceReadingTabs from "../components/WorkspaceReadingTabs";
 
 const bus = vi.hoisted(() => new Map<string, Set<(event: { payload: any }) => void>>());
@@ -323,4 +325,34 @@ it("fits a slow hot native open to the resized list boundary before showing it",
     expect(fit).toBeGreaterThan(-1);
     expect(show).toBeGreaterThan(fit);
   } finally { release(); measure.mockRestore(); }
+});
+
+it("collapses the hot reading area without closing tabs and opens it on a foreground item", async () => {
+  localStorage.removeItem(HOT_UI_KEY);
+  const normal = vi.mocked(invoke).getMockImplementation()!;
+  vi.mocked(invoke).mockImplementation(async (command, args, options) => {
+    if (command === "list_hot_sources") return [{ ...hotSource, region: "global", category: "tech", refresh_secs: 600 }] as any;
+    if (command === "get_hot_snapshot") return { source_id: hotSource.id, items: [hotItem(1), hotItem(2)], stale: false, fetched_at: "2026-09-21", status: "ok" } as any;
+    return normal(command, args, options);
+  });
+  await act(() => useReadingGroups.getState().openHot(hotSource, hotItem(1), null, false, "web"));
+  await act(() => root.render(createElement(QueryClientProvider, { client: qc }, createElement(HotBoard, { active: true }))));
+  await settle();
+  const id = useReadingGroups.getState().active.hot!;
+  const page = native.get(id);
+  await click(".hot-reader-toggle"); await settle();
+  expect(host.querySelector(".hot-detail")).toBeNull();
+  expect(host.querySelectorAll('[role="separator"]')).toHaveLength(1);
+  expect(native.get(id)).toEqual(page);
+  expect(commands("set_page_view_visible").at(-1)?.[1]).toMatchObject({ viewId: id, visible: false });
+  expect(JSON.parse(localStorage.getItem(HOT_UI_KEY)!).readerHidden).toBe(true);
+  const row = host.querySelector<HTMLButtonElement>(".hot-card-items button")!;
+  await act(() => row.dispatchEvent(new MouseEvent("click", { bubbles: true, ctrlKey: true })));
+  expect(host.querySelector(".hot-detail")).toBeNull();
+  await act(() => row.click()); await settle();
+  expect(host.querySelector(".hot-detail")).not.toBeNull();
+  expect(useReadingGroups.getState().active.hot).toBe(id);
+  expect(native.get(id)).toEqual(page);
+  expect(commands("close_page_view")).toHaveLength(0);
+  localStorage.removeItem(HOT_UI_KEY);
 });
