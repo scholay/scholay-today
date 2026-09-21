@@ -62,6 +62,8 @@ pnpm build:desktop
 
 安装器在 `target/release/bundle/nsis/`。`prepare:mcp` 会构建并打包同一平台的伴随程序，不会误装 macOS 二进制。
 
+公开采集组件每次构建都在系统临时目录创建独立 Python 虚拟环境，完成或失败后仅清理该临时目录；不复用 Rust `target` 缓存中的 Python 环境。依赖安装、许可证收集或 PyInstaller 任一步失败都会终止打包，不产出占位组件。
+
 WebView2 smoke 使用独立临时浏览器配置和虚构文章，验证真实渲染、中文、隔离抓取、排除表单/隐藏内容及带图 ZIP，不访问用户数据库或模型。它不等同于已验证每个平台的登录成功，也不覆盖所有 DPI、网页与 Windows 驱动组合。
 
 ## CI/CD

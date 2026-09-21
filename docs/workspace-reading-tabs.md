@@ -34,7 +34,7 @@ RSS 与热榜在后台共用最多 10 个原生网页的 LRU 资源池，以实�
 
 ## 验证与边界
 
-- `pnpm test`：380 项通过，覆盖去重、后台打开、各工作台独立的 MRU/批量关闭/循环/恢复历史、隔离标签列表和溢出菜单、会话校验、已删除文档、迟到事件、慢速打开、混合阅读状态及抓取/AI 生命周期。
+- `pnpm test`：387 项通过，覆盖去重、后台打开、各工作台独立的 MRU/批量关闭/循环/恢复历史、隔离标签列表和溢出菜单、会话校验、已删除文档、迟到事件、慢速打开、混合阅读状态、抓取/AI 生命周期，以及 Windows 采集组件构建环境与失败处理。
 - `pnpm build`：通过；仍有项目既有的大 bundle 提示。
 - `cargo test --workspace --locked`：通过，未降低测试门槛。
 - `cargo run --locked -p papr --features reader-tabs-smoke --example reader-tabs-smoke`：macOS 原生 smoke 通过，包含真实 WKWebView 的 RSS/热榜切换、运行状态/历史/滚动保留、混合 10 页缓存、网址/缩放重建、独立授权实例及原生焦点快捷键。
