@@ -71,7 +71,7 @@ const VERIFY: &str = r#"(async () => {
     await wait(200);
     assert('secondRestore', rgb(document.body) === original && styleCount() === 0);
     window.__themeSmokeResult = { passed: true, checks };
-  } catch(error) { window.__themeSmokeResult = { passed: false, error: String(error), checks, background: rgb(document.body), styles: styleCount() }; }
+  } catch(error) { window.__themeSmokeResult = { passed: false, error: String(error), checks, background: rgb(document.body), styles: styleCount(), hidden: document.hidden, ready: theme?.isReadyToDisplay() }; }
 })();"#;
 
 fn main() {
@@ -127,6 +127,11 @@ fn main() {
                         return;
                     }
                     let view = window.get_webview("theme-smoke").unwrap();
+                    // A hidden HWND does not hide its WebView2 controller.
+                    // Exercise the same child-view visibility API as the reader,
+                    // rather than assuming window visibility sets document.hidden.
+                    #[cfg(windows)]
+                    view.hide().unwrap();
                     page_theme::apply_backing(&view, true);
                     view.eval(VERIFY).unwrap();
                     let handle = callback_handle.clone();
@@ -151,7 +156,10 @@ fn main() {
                                 continue;
                             };
                             if !shown && state["prepared"] == true {
-                                handle.get_webview_window("theme-smoke").unwrap().show().unwrap();
+                                let window = handle.get_webview_window("theme-smoke").unwrap();
+                                window.show().unwrap();
+                                #[cfg(windows)]
+                                view.show().unwrap();
                                 shown = true;
                             }
                             let report = &state["report"];
