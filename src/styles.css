@@ -821,6 +821,13 @@ button { font-family: inherit; }
 .art.read .art-snippet { color: var(--muted-2); }
 .art.read .art-dot { opacity: 0; }
 
+.agented-group-head {
+  padding: 10px 16px 2px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--ink-3);
+}
 .art-head {
   display: flex;
   align-items: center;

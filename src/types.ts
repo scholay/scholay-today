@@ -182,6 +182,9 @@ export interface ArticleSummary {
   isRead: boolean;
   isStarred: boolean;
   readLater: boolean;
+  /** Set when this cleaned article belongs to an Agented group. */
+  groupId?: number | null;
+  groupName?: string | null;
 }
 
 export interface ArticleDetail {

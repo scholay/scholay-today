@@ -39,7 +39,7 @@
 | `article_clean_status` | 按 `jobId` 或当前运行作业查询进度与逐篇失败原因 |
 | `article_read` | 读取单篇已清洗的结构化正文，按块分页并设字符预算 |
 
-`library_apply` 支持 `create_folder`、`rename_folder`、`move_folder`、`delete_folder`、`rename_feed`、`move_feed`、`set_feed_url`、`set_feed_interval`、`archive_feed` 和 `restore_feed`。
+`library_apply` 支持 `create_folder`、`rename_folder`、`move_folder`、`delete_folder`、`rename_feed`、`move_feed`、`set_feed_url`、`set_feed_interval`、`archive_feed`、`restore_feed`，以及清洗文章分组的 `create_agented_group`、`rename_agented_group`、`delete_agented_group` 和 `set_article_group`。删除分组只解散成员，不删除文章或 Markdown。`library_list` 会返回分组及篇数；`article_list` 的每行带有 `groupId` / `groupName`，可选 `group_id` 只列出该组，且不会改变 `article_clean` 的默认选片。
 
 使用流程：先 `library_list` 获取稳定 ID 和 `revision`，再用 `dry_run: true` 预览，提交时显式 `dry_run: false`，携带 `expected_revision` 和唯一 `request_key`。不确定请求是否完成时，用同一个 `request_key` 重试；相同键不允许换另一批操作。
 

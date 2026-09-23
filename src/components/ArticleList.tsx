@@ -16,6 +16,9 @@ import Icon from "./Icon";
 import ArticleListControls from "./ArticleListControls";
 import ContextMenu, { type MenuEntry } from "./ContextMenu";
 import { batchScope, MAX_BATCH_ARTICLES, uniqueArticles, useBatchExport } from "../lib/batchExport";
+import { agentedGroupLabel, startsAgentedGroup } from "../lib/agentedGroups";
+import { libraryApply, libraryStatus } from "../lib/integrations";
+import PromptDialog from "./PromptDialog";
 import "./batch-export.css";
 
 const PAGE = 60;
@@ -46,6 +49,9 @@ export default function ArticleList({ onToast }: Props) {
   const selectedId = useUi((s) => s.selectedArticleId);
   const openArticle = useUi((s) => s.openArticle);
   const batch = useBatchExport();
+  const agented = query.kind === "agented";
+  const groups = useQuery({ queryKey: ["agented-groups"], queryFn: api.listAgentedGroups, enabled: agented });
+  const [namingGroup, setNamingGroup] = useState(false);
   const scope = batchScope(query, unreadOnly);
   const selecting = batch.mode && batch.scope === scope;
   const selectedIds = useMemo(() => new Set(batch.selected.map(a => a.id)), [batch.selected]);
@@ -367,6 +373,16 @@ export default function ArticleList({ onToast }: Props) {
     setHover(null);
   };
 
+  const placeInGroup = async (articleId: number, groupId: number | null) => {
+    try {
+      const status = await libraryStatus();
+      await libraryApply([{ action: "set_article_group", id: articleId, group_id: groupId }], false, status.revision);
+      onToast(groupId == null ? "已移出分组" : "已移入分组");
+    } catch (e) {
+      reportError(e);
+    }
+  };
+
   const articleMenu = (a: ArticleSummary): MenuEntry[] => [
     { icon: "open", label: t("articleList.menuOpen"), shortcut: "⏎", onClick: () => openArticle(a.id, query.kind === "agented" ? "formatted" : undefined) },
     ...(a.url
@@ -405,6 +421,23 @@ export default function ArticleList({ onToast }: Props) {
           },
         ] as MenuEntry[])
       : []),
+    ...(agented
+      ? (() => {
+          const moves: MenuEntry[] = [
+            ...(groups.data ?? [])
+              .filter((group) => group.id !== a.groupId)
+              .map((group) => ({
+                icon: "folder" as const,
+                label: `移到「${group.name}」`,
+                onClick: () => void placeInGroup(a.id, group.id),
+              })),
+            ...(a.groupId != null
+              ? [{ icon: "minus" as const, label: "移出分组", onClick: () => void placeInGroup(a.id, null) }]
+              : []),
+          ];
+          return moves.length ? [{ separator: true } as MenuEntry, ...moves] : [];
+        })()
+      : []),
   ];
 
   const vItems = virt.getVirtualItems();
@@ -437,7 +470,8 @@ export default function ArticleList({ onToast }: Props) {
       <div className="list-header" {...(isMac && { "data-tauri-drag-region": true })}>
         <ArticleListControls sortOldest={sortOldest} unreadOnly={unreadOnly}
           onToggleSort={toggleSort} onToggleUnreadOnly={toggleUnreadOnly} onMarkAll={markAll}
-          selecting={selecting} onToggleSelection={toggleSelection}/>
+          selecting={selecting} onToggleSelection={toggleSelection}
+          onCreateGroup={agented ? () => setNamingGroup(true) : undefined}/>
         <h1 className="list-title" id="article-list-title">
           {/* Smart views re-translate live; feed/folder/tag keep their own title. */}
           <span className="list-title-text" title={query.kind === "feed" || query.kind === "folder" || query.kind === "tag" ? queryLabel : t(`smart.${query.kind}`)}>{query.kind === "feed" ||
@@ -552,6 +586,9 @@ export default function ArticleList({ onToast }: Props) {
                     onMouseEnter={(e) => onHover(a, e)}
                     onMouseLeave={leaveHover}
                   >
+                    {agented && startsAgentedGroup(a, items[vi.index - 1]) && (
+                      <div className="agented-group-head">{agentedGroupLabel(a)}</div>
+                    )}
                     {selecting && <label className="batch-row-check" data-no-hover-preview onClick={e => e.stopPropagation()} onKeyDown={e => e.stopPropagation()}><input type="checkbox" aria-label={`选择文章：${a.title}`} checked={selectedIds.has(a.id)} onChange={() => {
                       selectionRequest.current += 1; setSelectingAll(false); setAllSelected(false);
                       if (!selectedIds.has(a.id) && batch.selected.length >= MAX_BATCH_ARTICLES) { onToast(`每批最多选择 ${MAX_BATCH_ARTICLES} 篇`); return; }
@@ -597,6 +634,21 @@ export default function ArticleList({ onToast }: Props) {
           y={menu.y}
           items={articleMenu(menu.article)}
           onClose={() => setMenu(null)}
+        />
+      )}
+
+      {namingGroup && (
+        <PromptDialog
+          title="新建分组"
+          placeholder="分组名称"
+          confirmLabel="创建"
+          onSubmit={(name) => {
+            void libraryStatus()
+              .then((status) => libraryApply([{ action: "create_agented_group", name }], false, status.revision))
+              .then(() => onToast("已创建分组"))
+              .catch(reportError);
+          }}
+          onClose={() => setNamingGroup(false)}
         />
       )}
 

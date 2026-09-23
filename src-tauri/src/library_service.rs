@@ -37,6 +37,16 @@ pub async fn mutate(
 }
 
 #[tauri::command]
+pub async fn list_agented_groups(
+    state: State<'_, AppState>,
+    webview: Webview,
+) -> Result<Value, String> {
+    hot_board::require_main(&webview)?;
+    let c = state.read().await;
+    library::groups(&c).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn library_apply(
     app: AppHandle,
     webview: Webview,
@@ -152,7 +162,7 @@ async fn dispatch(app: &AppHandle, request: Value) -> Result<Value, String> {
         "library_list" => {
             let c = state.read().await;
             Ok(
-                json!({"revision":library::revision(&c).map_err(|e|e.to_string())?,"feeds":db::list_feeds(&c).map_err(|e|e.to_string())?,"folders":library::folders(&c).map_err(|e|e.to_string())?,"archived":library::archived(&c).map_err(|e|e.to_string())?}),
+                json!({"revision":library::revision(&c).map_err(|e|e.to_string())?,"feeds":db::list_feeds(&c).map_err(|e|e.to_string())?,"folders":library::folders(&c).map_err(|e|e.to_string())?,"groups":library::groups(&c).map_err(|e|e.to_string())?,"archived":library::archived(&c).map_err(|e|e.to_string())?}),
             )
         }
         "library_apply" => {
@@ -201,8 +211,19 @@ async fn dispatch(app: &AppHandle, request: Value) -> Result<Value, String> {
         }
         "article_list" => {
             let selection = article_clean::selection(p, None)?;
+            // group_id filters the shortlist only. article_clean keeps its own
+            // unread / not-yet-cleaned selection and ignores this field.
+            let group_id = match p.get("group_id") {
+                None | Some(Value::Null) => None,
+                Some(value) => Some(
+                    value
+                        .as_i64()
+                        .filter(|id| *id > 0)
+                        .ok_or("group_id must be a positive integer")?,
+                ),
+            };
             let c = state.read().await;
-            article_clean::list(&c, &selection)
+            article_clean::list(&c, &selection, group_id)
         }
         "article_read" => {
             let article_id = p["article_id"]

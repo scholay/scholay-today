@@ -1,7 +1,7 @@
 import { useTranslation } from "react-i18next";
 import Icon from "./Icon";
 
-export default function ArticleListControls({ sortOldest, unreadOnly, onToggleSort, onToggleUnreadOnly, onMarkAll, selecting, onToggleSelection }: {
+export default function ArticleListControls({ sortOldest, unreadOnly, onToggleSort, onToggleUnreadOnly, onMarkAll, selecting, onToggleSelection, onCreateGroup }: {
   sortOldest: boolean;
   unreadOnly: boolean;
   onToggleSort: () => void;
@@ -9,6 +9,7 @@ export default function ArticleListControls({ sortOldest, unreadOnly, onToggleSo
   onMarkAll: () => void;
   selecting?: boolean;
   onToggleSelection?: () => void;
+  onCreateGroup?: () => void;
 }) {
   const { t } = useTranslation();
   const sortLabel = sortOldest ? t("articleList.oldestFirst") : t("articleList.newestFirst");
@@ -19,6 +20,7 @@ export default function ArticleListControls({ sortOldest, unreadOnly, onToggleSo
       <Icon name={sortOldest ? "arrow-up" : "arrow-down"} size={12}/>
       <span>{sortLabel}</span>
     </button>
+    {onCreateGroup && <button className="list-meta-btn" onClick={onCreateGroup} title="新建 Agented 分组" aria-label="新建分组"><Icon name="folder" size={12}/><span>新建分组</span></button>}
     {onToggleSelection && <button className={`list-meta-btn list-batch-toggle ${selecting ? "on" : ""}`} onClick={onToggleSelection} title="多选文章并批量导出" aria-label="多选文章" aria-pressed={!!selecting}><Icon name="check-all" size={13}/><span>多选</span></button>}
     <button className={`list-meta-btn ${unreadOnly ? "on" : ""}`} onClick={onToggleUnreadOnly}
       title={t("articleList.hideRead")} aria-label={filterLabel} aria-pressed={unreadOnly}>

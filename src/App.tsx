@@ -273,7 +273,7 @@ export default function App({ active = true, onCaptureBusyChange, onRequestActiv
   // ── background refresh events from the Rust scheduler ──
   useEffect(() => {
     const un = listen("library-changed", () => {
-      for (const key of ["feeds", "folders", "counts", "articles", "library-status"]) void qc.invalidateQueries({ queryKey: [key] });
+      for (const key of ["feeds", "folders", "counts", "articles", "library-status", "agented-groups"]) void qc.invalidateQueries({ queryKey: [key] });
     });
     return () => { void un.then((f) => f()); };
   }, [qc]);

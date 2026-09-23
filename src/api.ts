@@ -45,6 +45,13 @@ export const articleStructuredDocument = (articleId: number) =>
   invoke<StructuredDocument>("article_structured_document", { articleId });
 export const listStructuredDocuments = () =>
   invoke<StructuredListItem[]>("list_structured_documents");
+export interface AgentedGroup {
+  id: number;
+  name: string;
+  position: number;
+  articles: number;
+}
+export const listAgentedGroups = () => invoke<AgentedGroup[]>("list_agented_groups");
 
 // ── images ──
 export const fetchCapturedImage = (articleId: number, captureId: string, url: string) =>

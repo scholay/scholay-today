@@ -1199,11 +1199,17 @@ fn article_filter(query: &ArticleQuery, unread_only: bool) -> (Vec<String>, Vec<
 /// The non-search ORDER BY clause shared by `list_articles` and
 /// `article_index`. See `list_articles` for why the effective date is wrapped
 /// in `datetime(COALESCE(...))`.
-fn article_order(oldest_first: bool) -> &'static str {
-    if oldest_first {
-        "datetime(COALESCE(a.published_at, a.fetched_at)) ASC, a.id ASC"
-    } else {
-        "datetime(COALESCE(a.published_at, a.fetched_at)) DESC, a.id DESC"
+fn article_order(query: &ArticleQuery, oldest_first: bool) -> String {
+    let date = if oldest_first { "ASC" } else { "DESC" };
+    let tie = if oldest_first { "ASC" } else { "DESC" };
+    let dated = format!("datetime(COALESCE(a.published_at, a.fetched_at)) {date}, a.id {tie}");
+    match query {
+        // Groups stay in creation order. Ungrouped cleaned articles follow every
+        // named group; SQLite would otherwise sort a null position first.
+        ArticleQuery::Agented => format!(
+            "CASE WHEN g.id IS NULL THEN 1 ELSE 0 END, g.position ASC, g.id ASC, {dated}"
+        ),
+        _ => dated,
     }
 }
 
@@ -1225,9 +1231,11 @@ pub fn article_index(
              SELECT a.id AS aid,
                     ROW_NUMBER() OVER (ORDER BY {order}) - 1 AS pos
              FROM articles a JOIN feeds f ON f.id = a.feed_id
+             LEFT JOIN agented_group_articles ga ON ga.article_id = a.id
+             LEFT JOIN agented_groups g ON g.id = ga.group_id
              WHERE {where_sql}
          ) WHERE aid = ?",
-        order = article_order(oldest_first),
+        order = article_order(query, oldest_first),
         where_sql = where_clauses.join(" AND "),
     );
     binds.push(Value::Integer(article_id));
@@ -1253,8 +1261,10 @@ pub fn list_articles(
     let mut sql = format!(
         "SELECT a.id, a.feed_id, f.title, f.source_type, a.title, a.author,
                 substr(a.body_text,1,{snippet_len}), a.image_url, a.url, a.published_at,
-                a.is_read, a.is_starred, a.read_later
-         FROM articles a JOIN feeds f ON f.id = a.feed_id ",
+                a.is_read, a.is_starred, a.read_later, g.id, g.name
+         FROM articles a JOIN feeds f ON f.id = a.feed_id
+         LEFT JOIN agented_group_articles ga ON ga.article_id = a.id
+         LEFT JOIN agented_groups g ON g.id = ga.group_id ",
         snippet_len = PREVIEW_SNIPPET_CHARS,
     );
     if searching {
@@ -1278,7 +1288,7 @@ pub fn list_articles(
         sql.push_str(" ORDER BY fts.rank ");
     } else {
         sql.push_str(" ORDER BY ");
-        sql.push_str(article_order(oldest_first));
+        sql.push_str(&article_order(query, oldest_first));
         sql.push(' ');
     }
     sql.push_str("LIMIT ? OFFSET ?");
@@ -1302,6 +1312,8 @@ pub fn list_articles(
                 is_read: r.get(10)?,
                 is_starred: r.get(11)?,
                 read_later: r.get(12)?,
+                group_id: r.get(13)?,
+                group_name: r.get(14)?,
             })
         })?
         .collect::<Result<Vec<_>, _>>()?;
@@ -2565,6 +2577,31 @@ mod tests {
         conn.execute("INSERT INTO library_archived_feeds(feed_id) SELECT feed_id FROM articles WHERE id=?1", [id]).unwrap();
         assert_eq!(agented_count(&conn).unwrap(), 0);
         assert!(list_articles(&conn, &query, false, None, false, 50, 0).unwrap().is_empty());
+    }
+
+    #[test]
+    fn agented_list_groups_before_ungrouped_and_keeps_time_inside_group() {
+        let (conn, older) = test_db();
+        conn.execute("UPDATE articles SET published_at='2026-01-01T00:00:00Z' WHERE id=?1", [older]).unwrap();
+        conn.execute("INSERT INTO articles(feed_id,guid,title,published_at) SELECT feed_id,'newer','Newer','2026-09-23T00:00:00Z' FROM articles WHERE id=?1", [older]).unwrap();
+        let newer: i64 = conn.query_row("SELECT id FROM articles WHERE guid='newer'", [], |r| r.get(0)).unwrap();
+        conn.execute("INSERT INTO articles(feed_id,guid,title,published_at) SELECT feed_id,'loose','Loose','2026-09-24T00:00:00Z' FROM articles WHERE id=?1", [older]).unwrap();
+        let loose: i64 = conn.query_row("SELECT id FROM articles WHERE guid='loose'", [], |r| r.get(0)).unwrap();
+        for id in [older, newer, loose] {
+            conn.execute("INSERT INTO article_structured VALUES(?1,'cap','rss','hash',1,1,10,0,'2026-09-22',NULL)", [id]).unwrap();
+        }
+        let created = crate::library::apply(&conn, &[crate::library::Mutation::CreateAgentedGroup { name: "Focus".into() }], "test", false, None, None).unwrap();
+        let group_id = created["results"][0]["id"].as_i64().unwrap();
+        crate::library::apply(&conn, &[
+            crate::library::Mutation::SetArticleGroup { id: older, group_id: Some(group_id) },
+            crate::library::Mutation::SetArticleGroup { id: newer, group_id: Some(group_id) },
+        ], "test", false, None, None).unwrap();
+        let query = ArticleQuery::Agented;
+        let list = list_articles(&conn, &query, false, None, false, 50, 0).unwrap();
+        assert_eq!(list.iter().map(|a| a.id).collect::<Vec<_>>(), vec![newer, older, loose]);
+        assert_eq!(list[0].group_name.as_deref(), Some("Focus"));
+        assert!(list[2].group_id.is_none());
+        assert_eq!(article_index(&conn, &query, false, false, loose).unwrap(), Some(2));
     }
 
     #[test]

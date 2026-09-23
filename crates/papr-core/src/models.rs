@@ -125,6 +125,9 @@ pub struct ArticleSummary {
     pub is_read: bool,
     pub is_starred: bool,
     pub read_later: bool,
+    /// Agented group, when this cleaned article has been placed in one.
+    pub group_id: Option<i64>,
+    pub group_name: Option<String>,
 }
 
 /// The full article shown in the reading pane.

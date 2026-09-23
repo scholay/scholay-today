@@ -19,7 +19,17 @@ pub fn ensure_schema(c: &Connection) -> AppResult<()> {
       id INTEGER PRIMARY KEY, request_key TEXT UNIQUE, actor TEXT NOT NULL,
       actions TEXT NOT NULL, result TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')));
       CREATE TABLE IF NOT EXISTS library_meta (id INTEGER PRIMARY KEY CHECK(id=1), revision INTEGER NOT NULL);
-      INSERT OR IGNORE INTO library_meta VALUES(1,0);")?;
+      INSERT OR IGNORE INTO library_meta VALUES(1,0);
+      CREATE TABLE IF NOT EXISTS agented_groups (
+        id INTEGER PRIMARY KEY,
+        name TEXT NOT NULL COLLATE NOCASE,
+        position INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')));
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_agented_groups_name ON agented_groups(name);
+      CREATE TABLE IF NOT EXISTS agented_group_articles (
+        article_id INTEGER PRIMARY KEY REFERENCES articles(id) ON DELETE CASCADE,
+        group_id INTEGER NOT NULL REFERENCES agented_groups(id) ON DELETE CASCADE,
+        assigned_at TEXT NOT NULL DEFAULT (datetime('now')));")?;
     Ok(())
 }
 
@@ -66,6 +76,20 @@ pub enum Mutation {
     RestoreFeed {
         id: i64,
     },
+    CreateAgentedGroup {
+        name: String,
+    },
+    RenameAgentedGroup {
+        id: i64,
+        name: String,
+    },
+    DeleteAgentedGroup {
+        id: i64,
+    },
+    SetArticleGroup {
+        id: i64,
+        group_id: Option<i64>,
+    },
 }
 fn exists(c: &Connection, kind: &str, id: i64) -> AppResult<()> {
     let sql = if kind == "folder" {
@@ -107,6 +131,63 @@ pub fn archived(c: &Connection) -> AppResult<Value> {
     let mut q=c.prepare("SELECT f.id,f.title,x.archived_at,(SELECT count(*) FROM articles a WHERE a.feed_id=f.id) FROM library_archived_feeds x JOIN feeds f ON f.id=x.feed_id ORDER BY x.archived_at DESC")?;
     let rows=q.query_map([],|r|Ok(json!({"id":r.get::<_,i64>(0)?,"title":r.get::<_,String>(1)?,"archivedAt":r.get::<_,String>(2)?,"articles":r.get::<_,i64>(3)?})))?.collect::<Result<Vec<_>,_>>()?;
     Ok(json!(rows))
+}
+pub fn groups(c: &Connection) -> AppResult<Value> {
+    ensure_schema(c)?;
+    let mut q = c.prepare(
+        "SELECT g.id, g.name, g.position, (SELECT count(*) FROM agented_group_articles m WHERE m.group_id = g.id)
+         FROM agented_groups g ORDER BY g.position, g.id",
+    )?;
+    let rows = q
+        .query_map([], |r| {
+            Ok(json!({
+                "id": r.get::<_, i64>(0)?,
+                "name": r.get::<_, String>(1)?,
+                "position": r.get::<_, i64>(2)?,
+                "articles": r.get::<_, i64>(3)?,
+            }))
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(json!(rows))
+}
+fn group_name(name: &str) -> AppResult<String> {
+    let name = name.trim();
+    if name.is_empty() || name.chars().count() > 80 {
+        return Err(AppError::other("Group name must be 1–80 characters"));
+    }
+    Ok(name.to_string())
+}
+fn group_name_taken(c: &Connection, name: &str, except: i64) -> AppResult<bool> {
+    Ok(c.query_row(
+        "SELECT EXISTS(SELECT 1 FROM agented_groups WHERE name = ?1 COLLATE NOCASE AND id != ?2)",
+        params![name, except],
+        |r| r.get(0),
+    )?)
+}
+fn agented_group(c: &Connection, id: i64) -> AppResult<()> {
+    if id <= 0
+        || !c.query_row(
+            "SELECT EXISTS(SELECT 1 FROM agented_groups WHERE id = ?1)",
+            [id],
+            |r| r.get::<_, bool>(0),
+        )?
+    {
+        return Err(AppError::other(format!("group {id} no longer exists")));
+    }
+    Ok(())
+}
+fn cleaned_article(c: &Connection, id: i64) -> AppResult<()> {
+    let cleaned: bool = c.query_row(
+        "SELECT EXISTS(SELECT 1 FROM article_structured WHERE article_id = ?1)",
+        [id],
+        |r| r.get(0),
+    )?;
+    if !cleaned {
+        return Err(AppError::other(
+            "Only a cleaned article can be placed in an Agented group",
+        ));
+    }
+    Ok(())
 }
 pub fn history(c: &Connection) -> AppResult<Value> {
     let mut q = c.prepare(
@@ -324,6 +405,53 @@ pub fn apply(
                 exists(&tx, "feed", *id)?;
                 tx.execute("DELETE FROM library_archived_feeds WHERE feed_id=?1", [id])?;
             }
+            Mutation::CreateAgentedGroup { name } => {
+                let name = group_name(name)?;
+                if group_name_taken(&tx, &name, 0)? {
+                    return Err(AppError::other("Group name already exists"));
+                }
+                let position: i64 = tx.query_row(
+                    "SELECT COALESCE(MAX(position), -1) + 1 FROM agented_groups",
+                    [],
+                    |r| r.get(0),
+                )?;
+                tx.execute(
+                    "INSERT INTO agented_groups(name, position) VALUES(?1, ?2)",
+                    params![name, position],
+                )?;
+                result["id"] = json!(tx.last_insert_rowid());
+            }
+            Mutation::RenameAgentedGroup { id, name } => {
+                agented_group(&tx, *id)?;
+                let name = group_name(name)?;
+                if group_name_taken(&tx, &name, *id)? {
+                    return Err(AppError::other("Group name already exists"));
+                }
+                tx.execute(
+                    "UPDATE agented_groups SET name = ?2 WHERE id = ?1",
+                    params![id, name],
+                )?;
+            }
+            Mutation::DeleteAgentedGroup { id } => {
+                agented_group(&tx, *id)?;
+                tx.execute("DELETE FROM agented_groups WHERE id = ?1", [id])?;
+            }
+            Mutation::SetArticleGroup { id, group_id } => {
+                cleaned_article(&tx, *id)?;
+                if let Some(group_id) = group_id {
+                    agented_group(&tx, *group_id)?;
+                    tx.execute(
+                        "INSERT INTO agented_group_articles(article_id, group_id) VALUES(?1, ?2)
+                         ON CONFLICT(article_id) DO UPDATE SET group_id = excluded.group_id, assigned_at = datetime('now')",
+                        params![id, group_id],
+                    )?;
+                } else {
+                    tx.execute(
+                        "DELETE FROM agented_group_articles WHERE article_id = ?1",
+                        [id],
+                    )?;
+                }
+            }
         }
         results.push(result);
     }
@@ -457,5 +585,126 @@ mod tests {
         )
         .unwrap();
         assert_eq!(db::list_feeds(&c).unwrap().len(), 1);
+    }
+    #[test]
+    fn agented_groups_keep_articles_and_reject_duplicates() {
+        let c = database();
+        let feed = db::insert_feed(
+            &c,
+            "https://example.org/feed",
+            None,
+            "Feed",
+            None,
+            crate::models::SourceType::Rss,
+            None,
+        )
+        .unwrap();
+        c.execute(
+            "INSERT INTO articles(feed_id,guid,title) VALUES(?1,'one','Clean me')",
+            [feed],
+        )
+        .unwrap();
+        let article: i64 = c
+            .query_row("SELECT id FROM articles", [], |r| r.get(0))
+            .unwrap();
+        assert!(apply(
+            &c,
+            &[Mutation::SetArticleGroup {
+                id: article,
+                group_id: Some(1),
+            }],
+            "test",
+            false,
+            None,
+            None,
+        )
+        .is_err());
+        c.execute(
+            "INSERT INTO article_structured VALUES(?1,'cap','rss','hash',1,1,10,0,'2026-09-22',NULL)",
+            [article],
+        )
+        .unwrap();
+        let preview = apply(
+            &c,
+            &[Mutation::CreateAgentedGroup {
+                name: " Week ".into(),
+            }],
+            "test",
+            true,
+            Some(0),
+            None,
+        )
+        .unwrap();
+        assert_eq!(preview["dryRun"], true);
+        assert!(groups(&c).unwrap().as_array().unwrap().is_empty());
+        let created = apply(
+            &c,
+            &[Mutation::CreateAgentedGroup {
+                name: " Week ".into(),
+            }],
+            "test",
+            false,
+            Some(0),
+            None,
+        )
+        .unwrap();
+        let group_id = created["results"][0]["id"].as_i64().unwrap();
+        assert!(apply(
+            &c,
+            &[Mutation::CreateAgentedGroup {
+                name: "week".into(),
+            }],
+            "test",
+            false,
+            None,
+            None,
+        )
+        .is_err());
+        apply(
+            &c,
+            &[Mutation::SetArticleGroup {
+                id: article,
+                group_id: Some(group_id),
+            }],
+            "test",
+            false,
+            None,
+            None,
+        )
+        .unwrap();
+        assert_eq!(groups(&c).unwrap()[0]["articles"], 1);
+        apply(
+            &c,
+            &[Mutation::DeleteAgentedGroup { id: group_id }],
+            "test",
+            false,
+            None,
+            None,
+        )
+        .unwrap();
+        assert!(groups(&c).unwrap().as_array().unwrap().is_empty());
+        assert_eq!(
+            c.query_row("SELECT count(*) FROM articles", [], |r| r.get::<_, i64>(0))
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            c.query_row(
+                "SELECT count(*) FROM article_structured",
+                [],
+                |r| r.get::<_, i64>(0)
+            )
+            .unwrap(),
+            1
+        );
+        assert_eq!(
+            c.query_row(
+                "SELECT count(*) FROM agented_group_articles",
+                [],
+                |r| r.get::<_, i64>(0)
+            )
+            .unwrap(),
+            0
+        );
     }
 }

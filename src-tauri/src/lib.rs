@@ -280,6 +280,7 @@ pub fn run() {
             article_export::export_article_bundle,
             batch_export::preview_article_bundles,
             batch_export::export_article_bundles,
+            library_service::list_agented_groups,
             library_service::library_status,
             library_service::library_permissions,
             library_service::library_apply,
