@@ -133,7 +133,7 @@ pub fn archived(c: &Connection) -> AppResult<Value> {
     Ok(json!(rows))
 }
 pub fn groups(c: &Connection) -> AppResult<Value> {
-    ensure_schema(c)?;
+    // Readers are query-only. `open` already creates these tables on the writer.
     let mut q = c.prepare(
         "SELECT g.id, g.name, g.position, (SELECT count(*) FROM agented_group_articles m WHERE m.group_id = g.id)
          FROM agented_groups g ORDER BY g.position, g.id",
