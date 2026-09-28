@@ -1,0 +1,38 @@
+[
+  {
+    "lane": "国际基金",
+    "provenance": { "origin": "web_search", "sourceTier": "official", "verification": "verified", "reviewedAt": "2026-09-27" },
+    "article": {
+      "id": 977001,
+      "feedTitle": "国家留学基金管理委员会（国家留学网）",
+      "title": "[2026年3月10日-2026年4月1日] 2026年博士生导师短期出国交流项目申报",
+      "snippet": "国家留学基金管理委员会项目指南明确：2026年博士生导师短期出国交流项目网上报名时间为3月10日0时至4月1日14时；受理单位须于4月15日前提交推荐公函、初选名单及电子材料。",
+      "url": "https://origin-www.csc.edu.cn/article/4044",
+      "publishedAt": "2026-01-04"
+    }
+  },
+  {
+    "lane": "国际基金",
+    "provenance": { "origin": "web_search", "sourceTier": "official", "verification": "verified", "reviewedAt": "2026-09-27" },
+    "article": {
+      "id": 977002,
+      "feedTitle": "国家留学基金管理委员会（国家留学网）",
+      "title": "[2026年3月16日-2026年6月30日] 2026年中法“蔡元培博士交流项目”合作项目申报",
+      "snippet": "国家留学基金管理委员会通知明确：中方参与单位须于2026年3月16日至6月30日寄送合作项目申请书、双方负责人及参与人材料和正式推荐公函，并提交电子版。",
+      "url": "https://origin-www.csc.edu.cn/article/4165",
+      "publishedAt": "2026-03-12"
+    }
+  },
+  {
+    "lane": "国际基金",
+    "provenance": { "origin": "web_search", "sourceTier": "official", "verification": "verified", "reviewedAt": "2026-09-27" },
+    "article": {
+      "id": 977003,
+      "feedTitle": "国家留学基金管理委员会（国家留学网）",
+      "title": "[2026年12月14日-2026年12月25日] 2026年中法“蔡元培博士交流项目”获批项目参与人网上申请",
+      "snippet": "国家留学基金管理委员会通知明确：获批合作项目单位应组织项目参与人于2026年12月14日0时至12月25日14时登录国家公派留学管理信息平台完成网上申请。",
+      "url": "https://origin-www.csc.edu.cn/article/4165",
+      "publishedAt": "2026-03-12"
+    }
+  }
+]

@@ -1,0 +1,326 @@
+[
+  {
+    "lane": "会议征稿",
+    "provenance": {
+      "origin": "web_search",
+      "sourceTier": "official",
+      "verification": "verified",
+      "reviewedAt": "2026-09-27"
+    },
+    "article": {
+      "id": 982001,
+      "feedTitle": "International Conference on Machine Learning",
+      "title": "[2026年1月8日-2026年1月28日] ICML 2026 主会论文投稿窗口",
+      "snippet": "ICML 2026 官方征稿页明确：投稿系统于2026年1月8日开放，摘要提交截止1月23日（AoE），全文提交截止1月28日（AoE）。",
+      "body": "第43届国际机器学习会议（ICML 2026）将于2026年7月6日至11日在韩国首尔线下举行。主会面向具有显著学术价值的原创机器学习研究征稿；摘要截止后作者名单不得更改，全文截止不予延期。主论文限8页，参考文献、影响说明和附录不计入该页数限制，投稿经OpenReview完成。",
+      "url": "https://icml.cc/Conferences/2026/CallForPapers",
+      "publishedAt": null
+    }
+  },
+  {
+    "lane": "会议征稿",
+    "provenance": {
+      "origin": "web_search",
+      "sourceTier": "official",
+      "verification": "verified",
+      "reviewedAt": "2026-09-27"
+    },
+    "article": {
+      "id": 982002,
+      "feedTitle": "NeurIPS",
+      "title": "[2026年5月4日-2026年5月6日] NeurIPS 2026 主会论文投稿窗口",
+      "snippet": "NeurIPS 2026 官方征稿页明确：摘要提交截止2026年5月4日（AoE），含补充材料的全文提交截止5月6日（AoE）。",
+      "body": "NeurIPS 2026 主会面向机器学习及其与计算机视觉、语言、多模态、机器人、健康、生物技术、物理科学、社会科学等交叉方向的原创研究征稿。所有作者提交时须拥有OpenReview个人资料；官方页面同时列出作者通知日为2026年9月24日，并提示主会、评测与数据集、立场论文等赛道采用不同征稿和投稿入口。",
+      "url": "https://neurips.cc/Conferences/2026/CallForPapers",
+      "publishedAt": null
+    }
+  },
+  {
+    "lane": "会议征稿",
+    "provenance": {
+      "origin": "web_search",
+      "sourceTier": "official",
+      "verification": "verified",
+      "reviewedAt": "2026-09-27"
+    },
+    "article": {
+      "id": 982003,
+      "feedTitle": "NeurIPS",
+      "title": "[2026年5月15日] NeurIPS 2026 Competition Track 竞赛方案提交截止",
+      "snippet": "NeurIPS 2026 Competition Track 官方公告明确：竞赛方案提交截止2026年5月15日（AoE），获选通知为6月15日。",
+      "body": "NeurIPS 2026 Competition Track 征集围绕明确科学问题的竞赛方案，特别鼓励具有积极社会影响、面向弱势群体支持、LLM与智能体评测等主题。官方要求方案说明组织与参赛吸引计划；获选竞赛建议于6月启动、最迟10月底结束，竞赛赛道活动定于2026年12月11日至12日举行。",
+      "url": "https://neurips.cc/Conferences/2026/CallForCompetitions",
+      "publishedAt": null
+    }
+  },
+  {
+    "lane": "会议征稿",
+    "provenance": {
+      "origin": "web_search",
+      "sourceTier": "official",
+      "verification": "verified",
+      "reviewedAt": "2026-09-27"
+    },
+    "article": {
+      "id": 982004,
+      "feedTitle": "Association for Computational Linguistics",
+      "title": "[2026年1月5日] ACL 2026 主会论文 ARR 投稿截止",
+      "snippet": "ACL 2026 官方主会征稿页明确：所有论文经ARR提交，投稿截止为2026年1月5日（AoE）。",
+      "body": "第64届计算语言学协会年会（ACL 2026）于2026年7月2日至7日在美国圣迭戈举行。主会征集计算语言学与自然语言处理领域具有实质性、原创性且未发表的长文与短文；除传统研究结果外，也欢迎负面结果、综述、资源、立场论文和复现研究。评审实行双盲，官方要求作者参与相应审稿工作。",
+      "url": "https://2026.aclweb.org/calls/main_conference_papers/",
+      "publishedAt": null
+    }
+  },
+  {
+    "lane": "会议征稿",
+    "provenance": {
+      "origin": "web_search",
+      "sourceTier": "official",
+      "verification": "verified",
+      "reviewedAt": "2026-09-27"
+    },
+    "article": {
+      "id": 982005,
+      "feedTitle": "Association for Computational Linguistics",
+      "title": "[2026年3月14日] ACL 2026 主会论文承诺截止",
+      "snippet": "ACL 2026 官方主会征稿页明确：ARR论文承诺参加ACL 2026的截止日为2026年3月14日（AoE）。",
+      "body": "已在ARR早期周期完成评审并获得meta-review的论文，可通过官方承诺系统进入ACL 2026评审流程。该页列出作者可查看ARR评审的日期为3月10日、录用通知为4月4日、撤稿和camera-ready截止均为4月19日；所有时限采用UTC−12的Anywhere on Earth标准。",
+      "url": "https://2026.aclweb.org/calls/main_conference_papers/",
+      "publishedAt": null
+    }
+  },
+  {
+    "lane": "会议征稿",
+    "provenance": {
+      "origin": "web_search",
+      "sourceTier": "official",
+      "verification": "verified",
+      "reviewedAt": "2026-09-27"
+    },
+    "article": {
+      "id": 982006,
+      "feedTitle": "Computer Vision Foundation",
+      "title": "[2025年11月7日-2025年11月13日] CVPR 2026 主会论文投稿窗口",
+      "snippet": "CVPR 2026 官方日程明确：摘要提交截止2025年11月7日（AoE），主论文提交截止11月13日（AoE）。",
+      "body": "CVPR 2026 主技术项目征集计算机视觉与模式识别各方向的高质量原创研究，涵盖三维视觉、自动驾驶、生成、医学与生物视觉、多模态、机器人视觉、隐私与伦理等主题。官方规定补充材料截止11月20日（AoE），并要求投稿在审稿期内不得与其他会议或期刊进行实质性重复投稿。",
+      "url": "https://cvpr.thecvf.com/Conferences/2026/CallForPapers",
+      "publishedAt": null
+    }
+  },
+  {
+    "lane": "会议征稿",
+    "provenance": {
+      "origin": "web_search",
+      "sourceTier": "official",
+      "verification": "verified",
+      "reviewedAt": "2026-09-27"
+    },
+    "article": {
+      "id": 982007,
+      "feedTitle": "Computer Vision Foundation",
+      "title": "[2026年3月20日] CVPR 2026 演示项目征集截止",
+      "snippet": "CVPR 2026 官方日程页列明：Call for Demos 截止时间为2026年3月20日（AoE）。",
+      "body": "CVPR 2026 官方日程将演示项目征集与主论文、创意AI、教程和workshop等独立节点并列管理。该届会议的workshops与tutorials安排在2026年6月3日至4日，主会安排在6月5日至7日；演示项目征集截止采用Anywhere on Earth时区。",
+      "url": "https://cvpr.thecvf.com/Conferences/2026/Dates",
+      "publishedAt": null
+    }
+  },
+  {
+    "lane": "会议征稿",
+    "provenance": {
+      "origin": "web_search",
+      "sourceTier": "official",
+      "verification": "verified",
+      "reviewedAt": "2026-09-27"
+    },
+    "article": {
+      "id": 982008,
+      "feedTitle": "European Geosciences Union",
+      "title": "[2026年1月15日] EGU General Assembly 2026 摘要提交截止",
+      "snippet": "欧洲地球科学联盟官方公告明确：EGU26摘要提交截止为2026年1月15日13:00（CET）。",
+      "body": "EGU General Assembly 2026 于2026年5月3日至8日在奥地利维也纳及线上混合举行，覆盖地球、行星与空间科学。官方要求第一作者须为2026年度EGU会员，通常每位第一作者限投一篇摘要；每篇摘要处理费为50欧元，提交的摘要须由作者或共同作者在会议上实际报告。",
+      "url": "https://www.egu.eu/news/1512/call-for-abstracts-to-the-egu26-general-assembly-now-open/",
+      "publishedAt": "2025-10-22"
+    }
+  },
+  {
+    "lane": "会议征稿",
+    "provenance": {
+      "origin": "web_search",
+      "sourceTier": "official",
+      "verification": "verified",
+      "reviewedAt": "2026-09-27"
+    },
+    "article": {
+      "id": 982009,
+      "feedTitle": "American Chemical Society",
+      "title": "[2025年9月29日] ACS Spring 2026 摘要提交截止",
+      "snippet": "ACS Spring 2026 官方征集页列明：多个化学学部与委员会的摘要提交截止为2025年9月29日23:59（EST）。",
+      "body": "ACS Spring 2026 的官方摘要征集通过ACS ID和MAPS系统提交。页面按农业与食品化学、分析化学、生物化学与化学生物学、催化、环境、能源、材料、药物、物理等项目领域公布截止日，并说明各专题、组织者及具体截止日可能调整；申请人应以所投项目领域页面显示的最终时间为准。",
+      "url": "https://callforabstracts.acs.org/acsspring2026?itm_event_id=36",
+      "publishedAt": null
+    }
+  },
+  {
+    "lane": "会议征稿",
+    "provenance": {
+      "origin": "web_search",
+      "sourceTier": "official",
+      "verification": "verified",
+      "reviewedAt": "2026-09-27"
+    },
+    "article": {
+      "id": 982010,
+      "feedTitle": "IEEE Signal Processing Society",
+      "title": "[2025年9月17日] ICASSP 2026 常规论文提交截止",
+      "snippet": "ICASSP 2026 官方征稿页列明：常规论文提交截止为2025年9月17日。",
+      "body": "第51届IEEE国际声学、语音与信号处理会议（ICASSP 2026）于2026年5月4日至8日在西班牙巴塞罗那举行。官方征稿说明常规论文须在截止前电子提交，审稿由相关领域专家完成；论文正文、图表和参考文献总长不超过5页，录用论文必须由作者在会议上报告。",
+      "url": "https://2026.ieeeicassp.org/call-for-papers/",
+      "publishedAt": null
+    }
+  },
+  {
+    "lane": "会议征稿",
+    "provenance": {
+      "origin": "web_search",
+      "sourceTier": "official",
+      "verification": "verified",
+      "reviewedAt": "2026-09-27"
+    },
+    "article": {
+      "id": 982011,
+      "feedTitle": "IEEE Signal Processing Society",
+      "title": "[2025年9月24日] ICASSP 2026 IEEE OJSP 论文提交截止",
+      "snippet": "ICASSP 2026 官方征稿页列明：IEEE Open Journal of Signal Processing（OJSP）论文提交截止为2025年9月24日。",
+      "body": "ICASSP 2026 的IEEE Open Journal of Signal Processing（OJSP）设立了与主会相同评审节奏的独立投稿通道。OJSP论文采用8页正文加1页参考文献的格式；录用论文将发表于OJSP并在会议报告，但不收入会议论文集，申请人还须按官方说明完成相应表单。",
+      "url": "https://2026.ieeeicassp.org/call-for-papers/",
+      "publishedAt": null
+    }
+  },
+  {
+    "lane": "会议征稿",
+    "provenance": {
+      "origin": "web_search",
+      "sourceTier": "official",
+      "verification": "verified",
+      "reviewedAt": "2026-09-27"
+    },
+    "article": {
+      "id": 982012,
+      "feedTitle": "UK Research and Innovation（UKRI）｜BBSRC",
+      "title": "BBSRC Sparking Innovation Conference 2026",
+      "snippet": "BBSRC 年度生物科学创新会议：2026年4月21日至22日于英国莱斯特举行，聚焦知识交流、产业协作与科研成果转化。",
+      "body": "活动时间：2026年4月21日-2026年4月22日。英国生物科学与生物技术研究理事会（BBSRC）在莱斯特举办，面向英国生物科学创新社区，连接学界、产业与投资者；议题包括科研成果商业化、可持续转化模式、创新生态系统、项目展示与 Demo Day。官方页面标注免费，报名已关闭。",
+      "url": "https://www.ukri.org/events/bbsrc-sparking-innovation-conference-2026-pre-announcement/",
+      "publishedAt": "2025-12-02"
+    }
+  },
+  {
+    "lane": "会议征稿",
+    "provenance": {
+      "origin": "web_search",
+      "sourceTier": "official",
+      "verification": "verified",
+      "reviewedAt": "2026-09-27"
+    },
+    "article": {
+      "id": 982013,
+      "feedTitle": "UK Research and Innovation（UKRI）｜STFC",
+      "title": "DAFNI 2026 Conference",
+      "snippet": "STFC DAFNI 年度会议：2026年9月10日线上及英国牛津同步举行，聚焦气候与安全韧性、工业战略和清洁能源。",
+      "body": "活动时间：2026年9月10日09:00-16:30（英国时间）。科学技术设施理事会（STFC）主办的 DAFNI 年度会议在线上及牛津 Rhodes House 举行；上午聚焦气候与安全韧性，下午讨论政府工业战略与清洁能源，并展示过去一年政府、学界和产业项目及 DAFNI 平台进展。",
+      "url": "https://www.ukri.org/events/dafni-2026-conference/",
+      "publishedAt": "2026-06-04"
+    }
+  },
+  {
+    "lane": "会议征稿",
+    "provenance": {
+      "origin": "web_search",
+      "sourceTier": "official",
+      "verification": "verified",
+      "reviewedAt": "2026-09-27"
+    },
+    "article": {
+      "id": 982014,
+      "feedTitle": "日本科学技术振兴机构（JST）｜研究开发战略中心（CRDS）",
+      "title": "JST-CRDS／文部科学省共催 「AI for Science 2026 公開シンポジウム」",
+      "snippet": "JST-CRDS 与日本文部科学省共办的 AI for Science 2026 公开研讨会，于2026年9月17日在东京及线上举行。",
+      "body": "活动时间：2026年9月17日10:00-16:45（日本时间）。JST-CRDS 与文部科学省在东京室町三井大厅及线上举办，邀请产学官研究者讨论 AI for Science 的研究范式、前沿实践、社会影响、预期与挑战；第一部分提供线上直播，活动免费但须事先注册。",
+      "url": "https://www.jst.go.jp/crds/sympo/20260917/",
+      "publishedAt": "2026-09-01"
+    }
+  },
+  {
+    "lane": "国际基金",
+    "provenance": {
+      "origin": "web_search",
+      "sourceTier": "official",
+      "verification": "verified",
+      "reviewedAt": "2026-09-27"
+    },
+    "article": {
+      "id": 982015,
+      "feedTitle": "Swiss National Science Foundation（SNSF）",
+      "title": "Call for Postdoc.Mobility",
+      "snippet": "SNSF 博士后境外研究资助：2026年8月4日17:00（CEST）截止，支持博士毕业后的国际研究停留。",
+      "body": "截止时间：2026年8月4日17:00（CEST）。SNSF 的 Postdoc.Mobility 支持博士毕业后赴境外开展研究；申请人须已获博士学位、将在截止日后六个月内完成博士，或持有包含博士训练的医学学位，并须与瑞士有联系。资助通常为12至24个月；在资助期内的获资助者可申请3至12个月返瑞资助。",
+      "url": "https://www.snf.ch/en/aK0GyCwNg3knzGat/news/call-for-postdocmobility",
+      "publishedAt": "2026-05-04"
+    }
+  },
+  {
+    "lane": "国际基金",
+    "provenance": {
+      "origin": "web_search",
+      "sourceTier": "official",
+      "verification": "verified",
+      "reviewedAt": "2026-09-27"
+    },
+    "article": {
+      "id": 982016,
+      "feedTitle": "Swiss National Science Foundation（SNSF）",
+      "title": "Swiss Quantum Call 2026",
+      "snippet": "SNSF Swiss Quantum Call 2026：2026年9月1日17:00（CEST）截止，支持量子科学与技术研究。",
+      "body": "截止时间：2026年9月1日17:00（CEST）。该征集属于 Swiss Quantum Initiative，预计预算为1,600万瑞士法郎，支持量子通信、量子计算、量子模拟、量子传感与计量等高质量研究。仅符合 SNSF Project Funding 条件、以瑞士为基地的研究者可申请；鼓励独立早期职业研究者参与。",
+      "url": "https://www.snf.ch/en/N01wa8jzDaYFaPca/news/swiss-quantum-call-2026",
+      "publishedAt": "2026-06-01"
+    }
+  },
+  {
+    "lane": "国际基金",
+    "provenance": {
+      "origin": "web_search",
+      "sourceTier": "official",
+      "verification": "verified",
+      "reviewedAt": "2026-09-27"
+    },
+    "article": {
+      "id": 982017,
+      "feedTitle": "日本科学技术振兴机构（JST）｜SATREPS",
+      "title": "地球規模課題対応国際科学技術協力プログラム（ＳＡＴＲＥＰＳ）令和9年度研究提案募集",
+      "snippet": "FY2027 SATREPS 研究提案受理期为2026年8月18日至10月19日12:00（日本时间），面向日本研究机构与合作国共同开展可持续发展研究。",
+      "body": "申报时间：2026年8月18日-2026年10月19日12:00（日本时间）。JST 与 JICA 的 SATREPS 面向日本科研机构；合作国研究机构须经本国 ODA 主管部门提交请求，且请求须在2026年10月13日前到达日本外务省。方向包括环境与能源、生物资源、灾害防治与减灾；研究期为3至5年，JST/JICA 资助约每项目每年1亿日元。",
+      "url": "https://www.jst.go.jp/global/english/koubo/",
+      "publishedAt": "2026-08-17"
+    }
+  },
+  {
+    "lane": "国际基金",
+    "provenance": {
+      "origin": "web_search",
+      "sourceTier": "official",
+      "verification": "verified",
+      "reviewedAt": "2026-09-27"
+    },
+    "article": {
+      "id": 982018,
+      "feedTitle": "German Research Foundation（DFG）",
+      "title": "Canada-G7-Nordic Joint Call for Proposals on Quantum Technologies",
+      "snippet": "截止时间：2026年9月24日20:00（美国东部时间）。加拿大—G7—北欧量子技术联合征集支持多边量子研究合作。",
+      "body": "截止时间：2026年9月24日20:00（美国东部时间）。NSERC、DFG、JST、UKRI-EPSRC、NSF 与 NordForsk 相关机构联合支持量子科学与技术的双边或多边合作研究，涵盖量子算法与加密、通信、计算、材料和传感。项目必须至少有一名符合 NSERC 经费资格的研究者；各方首席研究者还须符合各自资助机构的资格及本国补充提交要求。",
+      "url": "https://www.dfg.de/de/aktuelles/neuigkeiten-themen/info-wissenschaft/2026/ifw-26-54",
+      "publishedAt": "2026-07-28"
+    }
+  }
+]

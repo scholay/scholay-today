@@ -1,5 +1,84 @@
 import { almanacDayIndex, dateKeyFromParts, inferMonthDay, parseDateKey } from "./helpers";
-import type { CalendarEvent, HistoryEvent, TagHeat } from "./types";
+import { officialSourceForUrl } from "./sourceRegistry";
+import { HISTORY_MEDIA_BY_TITLE } from "./curatedMedia";
+import type { CalendarEvent, CalendarEventOrigin, CalendarProvenance, CalendarSourceTier, CalendarVerificationStatus, HistoryEvent, TagHeat } from "./types";
+
+export interface ResolvedCalendarProvenance {
+  origin: CalendarEventOrigin;
+  sourceTier: CalendarSourceTier;
+  verification: CalendarVerificationStatus;
+  reviewedAt?: string;
+}
+
+const ORIGIN_LABEL: Record<CalendarEventOrigin, string> = {
+  rss: "RSS",
+  web_search: "外网检索",
+  curated: "整理入库",
+};
+
+const SOURCE_TIER_LABEL: Record<CalendarSourceTier, string> = {
+  official: "官网原文",
+  official_repost: "机构转发",
+  aggregator: "聚合来源",
+  community: "社区/社交",
+  unknown: "来源待分级",
+};
+
+const VERIFICATION_LABEL: Record<CalendarVerificationStatus, string> = {
+  verified: "已核验",
+  needs_review: "待核验",
+  unverified: "未核验",
+};
+
+function inferredSourceTier(event: CalendarEvent): CalendarSourceTier {
+  // National holidays are maintained from a cited State Council notice, rather
+  // than discovered through the RSS collection path.
+  if (event.id.startsWith("holiday:")) return "official";
+  if (officialSourceForUrl(event.payload.sourceUrl)) return "official";
+  // The notice text can mention WeChat, Zhihu, or another platform without
+  // making that platform the evidence source. Classify only the source fields.
+  const source = `${event.payload.sourceName ?? ""} ${event.payload.sourceUrl ?? ""}`;
+  if (/官方聚合|聚合|WikiCFP|Calenda|PhilEvents|科学网/.test(source)) return "aggregator";
+  if (/知乎|微信|微信公众号|社交|小红书|微博/.test(source)) return "community";
+  return "unknown";
+}
+
+/**
+ * Resolve optional migration fields into an honest, displayable status. An
+ * official URL establishes the source tier; it does not by itself claim that
+ * the extracted date has been editorially verified.
+ */
+export function calendarProvenance(event: CalendarEvent): ResolvedCalendarProvenance {
+  const supplied: CalendarProvenance | undefined = event.payload.provenance;
+  const holiday = event.id.startsWith("holiday:");
+  // "official" is a claim about the linked evidence page. Keep it only when
+  // the link is in the explicit registry; otherwise a future bad seed cannot
+  // manufacture an official badge or enter the verified-opportunity view.
+  const mismatchedOfficialClaim = !holiday
+    && supplied?.sourceTier === "official"
+    && !officialSourceForUrl(event.payload.sourceUrl);
+  const sourceTier = holiday
+    ? "official"
+    : mismatchedOfficialClaim
+      ? "unknown"
+      : supplied?.sourceTier ?? inferredSourceTier(event);
+  return {
+    origin: supplied?.origin ?? (event.source === "history" || holiday ? "curated" : "rss"),
+    sourceTier,
+    verification: mismatchedOfficialClaim
+      ? "needs_review"
+      : supplied?.verification ?? (holiday ? "verified" : "unverified"),
+    reviewedAt: supplied?.reviewedAt,
+  };
+}
+
+export function calendarProvenanceLabel(provenance: ResolvedCalendarProvenance): string {
+  return [
+    ORIGIN_LABEL[provenance.origin],
+    SOURCE_TIER_LABEL[provenance.sourceTier],
+    VERIFICATION_LABEL[provenance.verification],
+  ].join(" · ");
+}
 
 export function adaptHistoryEvents(events: readonly HistoryEvent[]): CalendarEvent[] {
   return events.map((event) => {
@@ -19,6 +98,7 @@ export function adaptHistoryEvents(events: readonly HistoryEvent[]): CalendarEve
         eventType: event.eventType,
         importance: event.importance,
         sources: event.sources,
+        media: HISTORY_MEDIA_BY_TITLE[event.title],
       },
     };
   });

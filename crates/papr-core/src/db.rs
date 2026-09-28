@@ -1485,6 +1485,37 @@ pub fn get_article(conn: &Connection, id: i64) -> AppResult<ArticleDetail> {
     Ok(detail)
 }
 
+/// Read a bounded batch of already-cached feed bodies for calendar cards.
+/// Callers supply explicit article ids, so this is never a broad library dump.
+pub fn calendar_article_bodies(conn: &Connection, ids: &[i64]) -> AppResult<Vec<ArticleBodyCache>> {
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    if ids.len() > 400 {
+        return Err(AppError::code("calendarBodyBatchTooLarge"));
+    }
+    let mut ids = ids.to_vec();
+    ids.sort_unstable();
+    ids.dedup();
+    let placeholders = std::iter::repeat("?")
+        .take(ids.len())
+        .collect::<Vec<_>>()
+        .join(",");
+    let mut stmt = conn.prepare(&format!(
+        "SELECT id, content_html, extracted_html FROM articles WHERE id IN ({placeholders})"
+    ))?;
+    let rows = stmt.query_map(params_from_iter(ids), |row| {
+        Ok(ArticleBodyCache {
+            id: row.get(0)?,
+            content_html: row.get(1)?,
+            extracted_html: row.get(2)?,
+        })
+    })?
+    .collect::<Result<Vec<_>, _>>()
+    .map_err(Into::into);
+    rows
+}
+
 /// `(title, plain_text)` for building an AI prompt. Prefers the extracted
 /// full text when the user has run extraction, so a summary / answer covers
 /// the whole article rather than the (often truncated) feed body.

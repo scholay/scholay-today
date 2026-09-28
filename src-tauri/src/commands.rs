@@ -375,6 +375,17 @@ pub async fn get_article(state: State<'_, AppState>, id: i64) -> AppResult<Artic
     })
 }
 
+/// Hydrate calendar cards from feed bodies that are already in the local
+/// article database. This never fetches a network page or mutates an article.
+#[tauri::command]
+pub async fn calendar_article_bodies(
+    state: State<'_, AppState>,
+    ids: Vec<i64>,
+) -> AppResult<Vec<ArticleBodyCache>> {
+    let conn = state.read().await;
+    db::calendar_article_bodies(&conn, &ids)
+}
+
 /// Queue a read/starred change for FreshRSS, but only when a server is linked.
 fn enqueue_if_connected(conn: &rusqlite::Connection, id: i64, field: &str, value: bool) {
     if db::is_freshrss_connected(conn) {

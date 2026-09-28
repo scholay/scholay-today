@@ -1,4 +1,5 @@
 import { YEAR_GROUPS, YEAR_RAIL, yearCluster } from "./yearGrow";
+import { HISTORY_GROUPS, historyGroupFor, isHistoryGroup } from "./historyGroups";
 
 export type TagSenseKind = "group" | "member" | "field" | "history" | "unknown";
 
@@ -9,8 +10,10 @@ export interface TagSense {
   definition: string;
 }
 
-/** Ten rail families: what this family collects, not how to apply. */
+/** Rail families: what this family collects, not how to apply. */
 const GROUP_SENSES: Record<string, string> = {
+  节假日: "国务院当年安排的放假调休，以及全国同一天过的传统节日。各校校历和只在部分地区过的日子不收。",
+  培养节点: "研究生培养和学期运行里的固定节点。年历按各校通知上的日期落点，不替任何一所学校排校历。",
   学术会议: "学者当面交流论文、专题或学科进展的集会。年历按截稿、会期和报名窗口落点。",
   自然科学基金: "资助自然科学基础研究的竞争性经费，以国家自然科学基金为主。",
   人文社科基金: "资助哲学社会科学、教育和艺术研究的竞争性经费，以国家社科基金等为主。",
@@ -25,6 +28,20 @@ const GROUP_SENSES: Record<string, string> = {
 
 /** Secondary instruments under the year rail. */
 const MEMBER_SENSES: Record<string, string> = {
+  法定放假: "国务院办公厅通知里写明的放假日期，按起止连成一段。",
+  调休上班: "放假调休通知里写明要上班的周末或休息日。",
+  传统节日: "全国同一天过的传统节日。南北日期不同的日子，例如小年，不收。",
+  开学: "秋季或春季学期开始上课的日子，以本校校历或教务通知为准。",
+  报到注册: "新学期到校报到或办理注册的日期。它常在正式上课前一两天，不等同于开课日。",
+  放假: "寒暑假，或通知里写明的停课。各校起止不同。",
+  考试: "校历或教务通知明确列出的复习、停课考试或期末考试时段。",
+  开题: "学位论文开题，用来确认题目、方法和计划。",
+  中期答辩: "开题之后、正式答辩之前的中期考核或中期答辩。",
+  预答辩: "正式答辩前的内部试讲或预审。",
+  外审: "提交校外或匿名专家评阅的论文送审节点，不等同于最终答辩。",
+  答辩: "学位论文的正式答辩，不含招聘里的面试答辩。",
+  毕业离校: "毕业生教育、毕业典礼或办理离校手续等集中节点，以校历或学校通知为准。",
+
   国际会议: "面向多国学者、通常用英文投稿与宣讲的会议。",
   国内会议: "主要在中国境内、以中文或国内学界为主的会议。",
   顶会: "本学科公认的高门槛会议。录用难、传播广，常被当作代表作成色。",
@@ -73,6 +90,7 @@ const MEMBER_SENSES: Record<string, string> = {
   千人计划: "已结束的国家海外高层次人才引进计划。后续同名窗口仍可能归到这里。",
   万人计划: "国家高层次人才特殊支持计划，分杰出、领军、青年等层次。",
   青年人才: "未能再细分的青年人才工程或培育计划，如科协青年人才托举。",
+  艺术人才: "面向艺术创作与研究人员的培养、研修或国际交流支持项目。",
   地方人才: "省、市人才称号或引才计划，如省级杰青、青年拔尖。",
 
   博士后基金: "中国博士后科学基金，分面上资助、特别资助等。",
@@ -157,12 +175,20 @@ const HISTORY_SENSES: Record<string, string> = {
   食品科学史: "食品化学、营养和安全检测如何成为科学对象。",
 };
 
+const HISTORY_GROUP_SENSES: Record<string, string> = {
+  研究体系: "研究如何被规范、评价、组织和复核：涵盖方法、开放、数据与制度。",
+  基础与计算: "基础科学、计算和工程知识的形成、实验与理论演进。",
+  "生命、健康与环境": "生命、医学、公共健康、环境与生产实践中的科学变迁。",
+  航天与空间: "航天任务、空间科学、月球探索及其制度和政策背景。",
+};
+
 const FALLBACK = "这个标签用来筛选年历里相关的申报、会议或历史条目。";
 
 export const TAG_GLOSSARY: Record<string, string> = {
   ...GROUP_SENSES,
   ...MEMBER_SENSES,
   ...FIELD_SENSES,
+  ...HISTORY_GROUP_SENSES,
   ...HISTORY_SENSES,
 };
 
@@ -171,7 +197,13 @@ export const YEAR_GLOSSARY_TAGS = [
   ...YEAR_GROUPS.flatMap((item) => item.members),
 ];
 
+export const HISTORY_GLOSSARY_TAGS = [
+  ...HISTORY_GROUPS.map((item) => item.group),
+  ...HISTORY_GROUPS.flatMap((item) => item.members),
+];
+
 export function tagSenseKind(tag: string, view?: "year" | "history"): TagSenseKind {
+  if (isHistoryGroup(tag)) return "group";
   if (view === "history" || (HISTORY_SENSES[tag] && !GROUP_SENSES[tag] && !MEMBER_SENSES[tag])) return "history";
   if ((YEAR_RAIL as readonly string[]).includes(tag)) return "group";
   if (MEMBER_SENSES[tag] || (yearCluster(tag) !== tag && YEAR_GLOSSARY_TAGS.includes(tag))) return "member";
@@ -181,7 +213,11 @@ export function tagSenseKind(tag: string, view?: "year" | "history"): TagSenseKi
 
 export function explainTag(tag: string, view?: "year" | "history"): TagSense {
   const kind = tagSenseKind(tag, view);
-  const group = kind === "member" ? yearCluster(tag) : kind === "group" ? tag : null;
+  const group = kind === "member"
+    ? yearCluster(tag)
+    : kind === "history"
+      ? historyGroupFor(tag)
+      : kind === "group" ? tag : null;
   return {
     tag,
     kind,

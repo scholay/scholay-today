@@ -1,4 +1,8 @@
 export const CALENDAR_SPLIT_KEY = "scholay.calendar.split.v1";
+/** The academic planner uses its own narrow-detail preference.  The old key
+ * remains the compact month rail used by 昔日学术, so an old drag cannot make
+ * the new central calendar unexpectedly narrow. */
+export const CALENDAR_YEAR_DETAIL_SPLIT_KEY = "scholay.calendar.year-detail.v1";
 export const ALMANAC_MIN = 240;
 export const DETAIL_MIN = 320;
 export const ALMANAC_DEFAULT = 360;
@@ -24,7 +28,7 @@ export function fitAlmanacWidth(splitWidth: number, preferred: number): { almana
   };
 }
 
-export function persistAlmanacWidth(width: number) {
-  try { localStorage.setItem(CALENDAR_SPLIT_KEY, JSON.stringify({ almanacWidth: width })); }
+export function persistAlmanacWidth(width: number, key = CALENDAR_SPLIT_KEY) {
+  try { localStorage.setItem(key, JSON.stringify({ almanacWidth: width })); }
   catch { /* Drag still works without persistence. */ }
 }

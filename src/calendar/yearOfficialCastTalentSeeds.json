@@ -1,0 +1,63 @@
+[
+  {
+    "lane": "人才计划",
+    "provenance": { "origin": "web_search", "sourceTier": "official", "verification": "verified", "reviewedAt": "2026-09-27" },
+    "article": {
+      "id": 980001,
+      "feedTitle": "中国科协办公厅",
+      "title": "[2024年9月8日] 第十届中国科协青年人才托举工程项目申报截止",
+      "snippet": "中国科协办公厅通知明确：第十届（2024—2026年度）青年人才托举工程面向全国学会、协会、研究会及学会联合体申报，系统填报截止时间为2024年9月8日20时。",
+      "url": "https://www.cast.org.cn/xw/tzgg/ZZRC/art/2024/art_0cb40c8250364dfa9855e79e2c0a198c.html",
+      "publishedAt": "2024-08-30"
+    }
+  },
+  {
+    "lane": "人才计划",
+    "provenance": { "origin": "web_search", "sourceTier": "official", "verification": "verified", "reviewedAt": "2026-09-27" },
+    "article": {
+      "id": 980002,
+      "feedTitle": "中国科协办公厅",
+      "title": "[2024年9月20日] 中国科协青年人才托举工程博士生专项计划支持系统开放",
+      "snippet": "中国科协办公厅通知明确：2024年青年人才托举工程博士生专项计划支持系统于2024年9月20日8时开放，候选人可在线填写推荐表并上传材料。",
+      "url": "https://rczx.cast.org.cn/sy/tzgg/art/2024/art_e051fac64f3944c3b8e4e427df3ea77a.html",
+      "publishedAt": "2024-09-13"
+    }
+  },
+  {
+    "lane": "人才计划",
+    "provenance": { "origin": "web_search", "sourceTier": "official", "verification": "verified", "reviewedAt": "2026-09-27" },
+    "article": {
+      "id": 980003,
+      "feedTitle": "中国科协办公厅",
+      "title": "[2024年10月25日] 中国科协青年人才托举工程博士生专项计划省级推荐截止",
+      "snippet": "中国科协办公厅通知明确：2024年青年人才托举工程博士生专项计划中，省级科协应于2024年10月25日17时前完成推荐工作；高校科协在此前按本省要求完成推荐。",
+      "url": "https://rczx.cast.org.cn/sy/tzgg/art/2024/art_e051fac64f3944c3b8e4e427df3ea77a.html",
+      "publishedAt": "2024-09-13"
+    }
+  },
+  {
+    "lane": "人才计划",
+    "provenance": { "origin": "web_search", "sourceTier": "official", "verification": "verified", "reviewedAt": "2026-09-27" },
+    "article": {
+      "id": 980004,
+      "feedTitle": "中国科协办公厅",
+      "title": "[2025年10月29日-2025年11月29日] 2025年中国科协青年科技人才培育工程博士生专项计划推荐",
+      "snippet": "中国科协办公厅通知明确：2025年博士生专项计划服务平台于10月29日开放，推荐截止时间为11月29日；候选人可在线填写推荐表并选择意向托举学会。",
+      "url": "https://rczx.cast.org.cn/jljj/jldt/art/2025/art_1660854139.html",
+      "publishedAt": "2025-10-29"
+    }
+  },
+  {
+    "lane": "人才计划",
+    "provenance": { "origin": "web_search", "sourceTier": "official", "verification": "verified", "reviewedAt": "2026-09-27" },
+    "article": {
+      "id": 980005,
+      "feedTitle": "中国科协办公厅",
+      "title": "[2026年9月28日] 2026年中国科协青年科技人才培育工程博士生专项计划推荐截止",
+      "snippet": "中国科协办公厅通知明确：2026年青年科技人才培育工程博士生专项计划推荐截止时间为9月28日，计划培育名额约8200人。",
+      "body": "中国科协2026年青年科技人才培育工程博士生专项计划面向全日制在读博士研究生，原则上要求具有中国国籍、年龄不超过30周岁且距毕业时间在2年以上。计划培育名额约8200人；服务平台于7月29日开放，全国学会和省级科协的推荐截止时间为9月28日。",
+      "url": "https://rczx.cast.org.cn/sy/tzgg/art/2026/art_3c9cc64b5a914fa2b0e43e113ce66c39.html",
+      "publishedAt": "2026-08-21"
+    }
+  }
+]

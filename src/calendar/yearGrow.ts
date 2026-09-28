@@ -1,7 +1,8 @@
-import { getArticle, listArticles, listFeeds, listFolders } from "../api";
+import { calendarArticleBodies, listArticles, listFeeds, listFolders } from "../api";
 import type { ArticleQuery, ArticleSummary, Feed, Folder } from "../types";
 import { dateKeyFromParts, daysInMonth, shanghaiCivilFromIso, shanghaiToday } from "./helpers";
-import type { CalendarDay, CalendarEvent } from "./types";
+import { isOfficialCalendarSource } from "./sourceRegistry";
+import type { CalendarDay, CalendarEvent, CalendarProvenance } from "./types";
 
 export interface GrowArticle {
   id: number;
@@ -10,13 +11,17 @@ export interface GrowArticle {
   snippet: string | null;
   url: string | null;
   publishedAt: string | null;
-  /** Full article text, pulled only when title and snippet fail to reveal a window. */
+  /** Original text cached locally from a feed or reviewed official source. */
   body?: string | null;
+  /** The local original-text cache reached its safety cap. */
+  bodyTruncated?: boolean | null;
 }
 
 export interface GrowSeed {
   article: GrowArticle;
   lane: string;
+  /** Optional migration metadata; absent legacy seeds remain readable as RSS evidence. */
+  provenance?: CalendarProvenance;
 }
 
 export interface GrowQuery {
@@ -84,6 +89,57 @@ function normalizeTitle(title: string): string {
   return title.replace(PREFIX, "").replace(/\s+/g, "").toLowerCase();
 }
 
+function canonicalGrowSourceUrl(rawUrl: string | null): string | null {
+  if (!rawUrl) return null;
+  try {
+    const url = new URL(rawUrl);
+    url.hash = "";
+    for (const key of [...url.searchParams.keys()]) {
+      if (/^utm_/i.test(key) || /^(fbclid|gclid)$/i.test(key)) url.searchParams.delete(key);
+    }
+    // Official sources always serve the secure origin. Treat HTTP RSS links as
+    // the same identity as their HTTPS notice, without making that assumption
+    // for arbitrary third-party hosts.
+    if (url.protocol === "http:" && isOfficialCalendarSource(url.toString())) url.protocol = "https:";
+    url.searchParams.sort();
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+/** Two small deterministic hashes keep DOM ids readable without trusting mutable local article ids. */
+function stableIdHash(value: string): string {
+  let left = 2166136261;
+  let right = 0x9e3779b9;
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    left = Math.imul(left ^ code, 16777619);
+    right = Math.imul(right ^ code, 2246822519);
+  }
+  return `${(left >>> 0).toString(36)}-${(right >>> 0).toString(36)}`;
+}
+
+/**
+ * Feed-local ids collide across imported seed sets. A stable source-and-title
+ * identity keeps focus and React keys distinct even when two feeds both use
+ * a number such as 930001.
+ */
+export function growEventId(seed: GrowSeed): string {
+  const origin = seed.provenance?.origin ?? "rss";
+  const source = canonicalGrowSourceUrl(seed.article.url)
+    ?? `feed:${normalizeTitle(seed.article.feedTitle)}`;
+  const fallback = seed.article.url ? "" : `\n${seed.article.publishedAt ?? ""}\n${seed.article.id}`;
+  return `year:${origin}:${stableIdHash(`${source}\n${normalizeTitle(seed.article.title)}${fallback}`)}`;
+}
+
+/** An official, date-reviewed page wins when it is backed by a registered source. */
+function isPreferredOfficialSeed(seed: GrowSeed): boolean {
+  return seed.provenance?.sourceTier === "official"
+    && seed.provenance.verification === "verified"
+    && isOfficialCalendarSource(seed.article.url);
+}
+
 const YEAR_FIELDS: [RegExp, string][] = [
   [/Artificial Intelligence|人工智能|类脑研究/, "人工智能"],
   [/Computer Science|CCF|CNCC|信息科学部/, "计算机"],
@@ -104,8 +160,10 @@ const YEAR_FIELDS: [RegExp, string][] = [
   [/艺术学|国家艺术基金|艺术科学规划/, "艺术"],
 ];
 
-/** Ten families on the year rail. Specific instruments stay as secondary tags. */
+/** Rail families. Specific instruments stay as secondary tags. */
 export const YEAR_RAIL = [
+  "节假日",
+  "培养节点",
   "学术会议",
   "自然科学基金",
   "人文社科基金",
@@ -119,6 +177,21 @@ export const YEAR_RAIL = [
 ] as const;
 
 export const YEAR_CLUSTERS: Record<string, string> = {
+  节假日: "节假日",
+  法定放假: "节假日",
+  调休上班: "节假日",
+  传统节日: "节假日",
+  培养节点: "培养节点",
+  开学: "培养节点",
+  报到注册: "培养节点",
+  放假: "培养节点",
+  考试: "培养节点",
+  开题: "培养节点",
+  中期答辩: "培养节点",
+  预答辩: "培养节点",
+  外审: "培养节点",
+  答辩: "培养节点",
+  毕业离校: "培养节点",
   学术会议: "学术会议",
   国际会议: "学术会议",
   国内会议: "学术会议",
@@ -158,6 +231,7 @@ export const YEAR_CLUSTERS: Record<string, string> = {
   地方人才科研项目: "地方科研项目",
   杰青: "人才计划",
   优青: "人才计划",
+  艺术人才: "人才计划",
   长江学者: "人才计划",
   海外优青: "人才计划",
   千人计划: "人才计划",
@@ -204,9 +278,21 @@ export const YEAR_GROUPS = YEAR_RAIL.map((group) => ({
 }));
 
 function yearInstrument(text: string): string | null {
+  if (/毕业生教育|毕业典礼|办理离校|毕业离校/.test(text)) return "毕业离校";
+  if (/中期答辩|中期考核|中期检查/.test(text)) return "中期答辩";
+  if (/外审|匿名评审|匿名送审|盲审|论文送审|校外送审/.test(text)) return "外审";
+  if (/预答辩/.test(text)) return "预答辩";
+  if (/开题/.test(text) && !/开题论证|项目开题/.test(text)) return "开题";
+  if (/答辩/.test(text) && !/招聘|另行通知/.test(text)) return "答辩";
+  if (/新生报到|报到注册|办理开学注册|学生注册/.test(text)) return "报到注册";
+  if (/开学|正式上课|开始上课|正式行课/.test(text)) return "开学";
+  if (/放假|寒假|暑假/.test(text)) return "放假";
+  if (/期末考试|停课考试|复习考试/.test(text)) return "考试";
   if (/长江学者/.test(text)) return "长江学者";
   if (/千人计划|青年千人|海外高层次人才引进计划/.test(text)) return "千人计划";
   if (/万人计划/.test(text)) return "万人计划";
+  if (/青年骨干教师出国研修/.test(text)) return "青年人才";
+  if (/艺术类人才培养特别项目/.test(text)) return "艺术人才";
   if (/海外优青|优秀青年科学基金项目（海外）|优秀青年科学基金项目\(海外\)/.test(text)) return "海外优青";
   if (/青年科学基金项目（A类）|青年科学基金项目\(A类\)|国家杰出青年/.test(text)) return "杰青";
   if (/杰青/.test(text) && !/省/.test(text)) return "杰青";
@@ -238,6 +324,10 @@ function yearInstrument(text: string): string | null {
   if (/国家重点研发计划|重点专项/.test(text)) return "国家重点研发";
   if (/科技重大专项|国家科技重大专项/.test(text)) return "科技重大专项";
   if (/国科管/.test(text)) return "重大专项";
+  // These titles may contain the generic phrase “重大项目”, but they belong
+  // under humanities rather than the generic science-fund major-project rail.
+  if (/国家社会科学基金.*艺术学|国家社科基金.*艺术学|艺术科学规划/.test(text)) return "艺术基金";
+  if (/全国教育科学规划|教育科学规划|国家社科基金教育学/.test(text)) return "教育科学";
   if (/国家艺术基金/.test(text)) return "艺术基金";
   if (/国家语委|语委科研/.test(text)) return "语委";
   if (/中国科协|青年人才托举|青年科技人才培育工程/.test(text)) return "青年人才";
@@ -283,6 +373,10 @@ function yearKind(article: GrowArticle, lane: string, instrument: string | null)
   if (/Bourse, prix et emploi/.test(text)) return "国际基金";
   const meeting = yearMeeting(article, lane);
   if (meeting) return meeting;
+  // Campus seeds have already passed source and scope review.  A calendar
+  // heading such as “秋季学期教学安排” may omit the literal word “开学”,
+  // but it must not fall into the research-project rail merely for that.
+  if (lane === "培养节点" && !instrument) return "开学";
   if (lane === "国际基金" && !instrument) return "国际基金";
   if (!instrument) return "科研项目";
   return null;
@@ -295,9 +389,34 @@ export function classifyYearTags(article: GrowArticle, lane: string): string[] {
     if (tag && !tags.includes(tag)) tags.push(tag);
   };
   const instrument = yearInstrument(text);
+  // A notice may stage pre-defence and anonymous review together. Retain both
+  // usable filters instead of flattening its later review deadline away.
+  if (/外审|匿名评审|匿名送审|盲审|论文送审|校外送审/.test(text)) {
+    add(yearCluster("外审"));
+    add("外审");
+  }
   if (instrument) {
     add(yearCluster(instrument));
     add(instrument);
+  }
+  // This is both an arts-fund call and an individual talent opportunity; keep
+  // the two non-exclusive rails visible without changing the primary fund tag.
+  if (/青年艺术创作人才/.test(text)) {
+    add(yearCluster("青年人才"));
+    add("青年人才");
+  }
+  // 博新、国资和港澳交流并非普通博士后基金：它们按人遴选，
+  // 也应能从「人才计划」入口被找到，同时保留博士后主分类。
+  if (/博士后创新人才支持计划|国家资助博士后研究人员计划|香江学者|澳门青年学者|中德博士后交流/.test(text)) {
+    add("人才计划");
+    add("青年人才");
+  }
+  // These state-funded exchange programs are talent tracks as well as
+  // international opportunities. Preserve both non-exclusive discovery rails.
+  if (/国家建设高水平大学公派研究生项目|博士生导师短期出国交流项目|青年骨干教师出国研修|艺术类人才培养特别项目/.test(text)) {
+    add("人才计划");
+    add(yearCluster("国际交换"));
+    add("国际交换");
   }
   const kind = yearKind(article, lane, instrument);
   if (kind) {
@@ -503,6 +622,12 @@ export function growPlacement(article: GrowArticle, lane?: string): { start: Cal
   const meta = spanMeta(lane);
   const span = parseTitleSpan(article.title, year);
   if (span && laterDay(span.start, span.end)) {
+    // A full teaching term is evidence for its opening day, not a bar that
+    // swallows four months of the calendar. Keep genuine breaks and short
+    // graduation / examination windows as spans.
+    if (lane === "培养节点" && spanDays(span.start, span.end) > 90 && /学期|教学安排|校历/.test(article.title)) {
+      return { start: span.start, kind: "point", meta: "开学节点" };
+    }
     if (acceptSpan(span.start, span.end, meta)) return { start: span.start, end: span.end, kind: "span", meta };
     return { start: span.start, kind: "point", meta: meta === "会期" ? "起始" : "开放" };
   }
@@ -558,16 +683,22 @@ export function keepGrowArticle(article: GrowArticle, lane: string): boolean {
 export function growYearEvents(seeds: readonly GrowSeed[]): CalendarEvent[] {
   const seen = new Set<string>();
   const events: CalendarEvent[] = [];
-  for (const seed of seeds) {
+  // Keep source order within a tier, so a reviewed official extraction wins an
+  // exact title collision with a raw RSS snapshot. Do not dedupe an entire URL:
+  // a guide page can announce multiple tracks and dates. The calendar year is
+  // also part of the identity: an annual program can rightly repeat the exact
+  // same name with a different application window next year.
+  const ordered = [...seeds].sort((left, right) => Number(isPreferredOfficialSeed(right)) - Number(isPreferredOfficialSeed(left)));
+  for (const seed of ordered) {
     if (!keepGrowArticle(seed.article, seed.lane)) continue;
     const placed = growPlacement(seed.article, seed.lane);
     if (!placed) continue;
-    const key = normalizeTitle(seed.article.title);
+    const key = `${placed.start.year}:${normalizeTitle(seed.article.title)}`;
     if (seen.has(key)) continue;
     seen.add(key);
     const tags = classifyYearTags(seed.article, seed.lane);
     events.push({
-      id: `year:${seed.article.id}`,
+      id: growEventId(seed),
       title: seed.article.title,
       tags,
       precision: "day",
@@ -577,11 +708,17 @@ export function growYearEvents(seeds: readonly GrowSeed[]): CalendarEvent[] {
       source: "year",
       approximate: false,
       payload: {
-        body: seed.article.snippet || undefined,
+        // A feed snippet is a compact preview, not the original article body.
+        // Keep the two fields separate so the card can say exactly what has
+        // been cached and direct the reader to the primary page when needed.
+        summary: seed.article.snippet || undefined,
+        body: seed.article.body || undefined,
+        bodyTruncated: seed.article.bodyTruncated || undefined,
         meta: placed.meta,
         sourceName: seed.article.feedTitle,
         sourceUrl: seed.article.url || undefined,
         eventType: tags[0],
+        ...(seed.provenance ? { provenance: seed.provenance } : {}),
       },
     });
   }
@@ -601,23 +738,45 @@ export async function loadGrowSeeds(): Promise<GrowSeed[]> {
   const queries = pickGrowQueries(folders, feeds);
   const batches = await Promise.all(queries.map(async (item) => {
     const articles = await listArticles(item.query, false, null, false, 400, 0).catch(() => [] as ArticleSummary[]);
-    return articles.map((article) => ({ article: toGrowArticle(article), lane: item.lane }));
+    return articles.map((article): GrowSeed => ({
+      article: toGrowArticle(article),
+      lane: item.lane,
+      provenance: { origin: "rss", verification: "unverified" },
+    }));
   }));
   return deepenGrowSeeds(batches.flat());
 }
 
 /** Feed snippets truncate before the window sentence, so re-read the ones we could not place. */
 export const DEEP_READ_LIMIT = 120;
+/**
+ * Calendar cards reuse source bodies already stored in the local RSS database.
+ * This is deliberately bounded so opening the calendar cannot turn into a
+ * full-library scan; calls are batched at the IPC boundary rather than one
+ * round trip per card.
+ */
+export const CALENDAR_BODY_CACHE_LIMIT = 1_200;
+const CALENDAR_BODY_BATCH_SIZE = 400;
 
 export async function deepenGrowSeeds(seeds: readonly GrowSeed[]): Promise<GrowSeed[]> {
-  const pending = seeds.filter((seed) => keepGrowArticle(seed.article, seed.lane) && needsDeepRead(seed.article, seed.lane)).slice(0, DEEP_READ_LIMIT);
-  if (pending.length === 0) return [...seeds];
+  const eligible = seeds.filter((seed) => keepGrowArticle(seed.article, seed.lane) && !seed.article.body?.trim());
+  // Dates that cannot be placed from the summary come first; the remaining
+  // local bodies make the disclosure card useful even when the date was clear.
+  const prioritized = [...eligible].sort((left, right) => (
+    Number(needsDeepRead(right.article, right.lane)) - Number(needsDeepRead(left.article, left.lane))
+  )).slice(0, CALENDAR_BODY_CACHE_LIMIT);
+  if (prioritized.length === 0) return [...seeds];
   const bodies = new Map<number, string>();
-  await Promise.all(pending.map(async (seed) => {
-    const detail = await getArticle(seed.article.id).catch(() => null);
-    const html = detail?.contentHtml;
-    if (html) bodies.set(seed.article.id, htmlToText(html));
-  }));
+  const uniqueIds = [...new Set(prioritized.map((seed) => seed.article.id))];
+  const batches = Array.from({ length: Math.ceil(uniqueIds.length / CALENDAR_BODY_BATCH_SIZE) }, (_, index) => (
+    uniqueIds.slice(index * CALENDAR_BODY_BATCH_SIZE, (index + 1) * CALENDAR_BODY_BATCH_SIZE)
+  ));
+  const hydrated = await Promise.all(batches.map((ids) => calendarArticleBodies(ids).catch(() => [])));
+  for (const detail of hydrated.flat()) {
+    const html = detail.extractedHtml || detail.contentHtml;
+    const body = html ? htmlToText(html) : "";
+    if (body) bodies.set(detail.id, body);
+  }
   return seeds.map((seed) => {
     const body = bodies.get(seed.article.id);
     return body ? { ...seed, article: { ...seed.article, body } } : seed;

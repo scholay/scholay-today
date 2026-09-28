@@ -211,6 +211,13 @@ export interface ArticleDetail {
   tags: Tag[];
 }
 
+/** Local feed content projection used by academic-calendar card hydration. */
+export interface ArticleBodyCache {
+  id: number;
+  contentHtml: string | null;
+  extractedHtml: string | null;
+}
+
 export interface SmartCounts {
   unread: number;
   starred: number;

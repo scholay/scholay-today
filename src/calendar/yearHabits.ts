@@ -22,7 +22,20 @@ function primaryTag(event: CalendarEvent): string {
   return event.tags[0] ?? "科研项目";
 }
 
+function tagged(evidence: readonly CalendarEvent[], tag: string): boolean {
+  return evidence.length > 0 && evidence.every((event) => event.tags.includes(tag));
+}
+
+/** A one-off grant stays off the year. Holidays and sourced campus notices are dates. */
+export function isListedHabit(habit: YearHabit): boolean {
+  return habit.habit || tagged(habit.evidence, "节假日") || tagged(habit.evidence, "培养节点");
+}
+
 function habitTitle(tag: string, evidence: readonly CalendarEvent[]): string {
+  if (tagged(evidence, "节假日") || tagged(evidence, "培养节点")) {
+    const span = evidence.find((event) => event.kind === "span");
+    return (span ?? evidence[0]).title;
+  }
   const spans = evidence.filter((event) => event.kind === "span").length;
   const windows = evidence.filter((event) => /指南|申报|征集|Due Dates|公募/.test(event.title)).length;
   if (spans * 2 >= evidence.length) return `${tag}会期`;
@@ -66,8 +79,11 @@ export function yearHabits(events: readonly CalendarEvent[]): YearHabit[] {
   }
   // The rail only lists openings, closings, and point days. Mid-span colour
   // lives on the month grid so a 200-day window does not become 200 cards.
+  // A single notice in a single year is not listed. Holidays are.
   return [...keys].sort().flatMap((dateKey) => (
-    habitsOnDateKey(events, dateKey).filter((habit) => habit.starts || habit.ends || habit.tone == null)
+    habitsOnDateKey(events, dateKey).filter((habit) => (
+      isListedHabit(habit) && (habit.starts || habit.ends || habit.tone == null)
+    ))
   ));
 }
 

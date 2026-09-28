@@ -11,6 +11,7 @@ mod public_connectors;
 
 mod ai_formatted;
 mod article_clean;
+mod calendar_store;
 mod article_document;
 mod article_export;
 mod batch_export;
@@ -114,9 +115,11 @@ pub fn run() {
             fs::create_dir_all(&data_dir).ok();
             let db_path = data_dir.join("papr.db");
             let fresh_database = !db_path.exists();
-            let conn = db::open(&db_path).expect("open database");
+            let mut conn = db::open(&db_path).expect("open database");
             papr_core::starter::initialize(&conn, fresh_database)
                 .expect("initialize public starter subscriptions");
+            calendar_store::ensure_schema_and_seed(&mut conn)
+                .expect("initialize academic calendar evidence store");
             // Optional desktop extension: never raise the RSS schema version,
             // so existing CLI/fallback builds can keep opening the same DB.
             // An unavailable extension must not prevent ordinary RSS startup.
@@ -277,6 +280,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             article_clean::article_structured_document,
             article_clean::list_structured_documents,
+            calendar_store::list_calendar_events,
             article_export::export_article_bundle,
             batch_export::preview_article_bundles,
             batch_export::export_article_bundles,
@@ -304,6 +308,7 @@ pub fn run() {
             commands::list_articles,
             commands::article_index,
             commands::get_article,
+            commands::calendar_article_bodies,
             reader_shortcuts::set_reader_shortcuts,
             reader_shortcuts::set_workspace_shortcuts,
             commands::mark_read,

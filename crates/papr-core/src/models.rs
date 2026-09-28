@@ -160,6 +160,17 @@ pub struct ArticleDetail {
     pub tags: Vec<Tag>,
 }
 
+/// A narrow, read-only projection used to hydrate calendar cards from RSS
+/// content already cached locally. It deliberately omits reader state and
+/// metadata so a calendar load can request many records at once.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArticleBodyCache {
+    pub id: i64,
+    pub content_html: Option<String>,
+    pub extracted_html: Option<String>,
+}
+
 /// A user highlight / annotation pinned to a span of an article's rendered
 /// plain text (feature F7). `text_offset` plus `prefix` / `suffix` form a
 /// resilient anchor: the offset is tried first, the context window second.

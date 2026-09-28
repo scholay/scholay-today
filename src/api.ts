@@ -7,6 +7,7 @@ import type { PageZoomAction, PageViewZoomEvent } from "./lib/pageViewZoom";
 import type {
   AiEvent,
   AiFormattedDraft,
+  ArticleBodyCache,
   ArticleDetail,
   ArticlePreviewTranslation,
   ArticleQuery,
@@ -28,6 +29,14 @@ import type {
   TranslateEvent,
   WechatConnectorStatus,
 } from "./types";
+import type { GrowSeed } from "./calendar/yearGrow";
+
+// ── academic calendar evidence ──
+/**
+ * Hand-verified official notices. These records are stored separately from
+ * RSS articles so their provenance survives without inventing a feed delivery.
+ */
+export const listCalendarEvents = () => invoke<GrowSeed[]>("list_calendar_events");
 
 // ── folders ──
 export const listFolders = () => invoke<Folder[]>("list_folders");
@@ -154,6 +163,8 @@ export const articleIndex = (
 
 export const getArticle = (id: number) =>
   invoke<ArticleDetail>("get_article", { id });
+export const calendarArticleBodies = (ids: number[]) =>
+  invoke<ArticleBodyCache[]>("calendar_article_bodies", { ids });
 export const markRead = (id: number, read: boolean) =>
   invoke<void>("mark_read", { id, read });
 export const markStarred = (id: number, starred: boolean) =>

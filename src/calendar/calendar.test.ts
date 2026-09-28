@@ -1,20 +1,23 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import historyEvents from "./historyEvents.json";
-import { adaptHistoryEvents, cellPoints, cellSpanFlags, dayPoints, eventDateKey, eventSortStamp, filterByTag, historyOnDateKey, sortTimelineEvents, spanCoversDateKey, spanProgressOnDateKey, tagHeat, timelineDateLabel, yearOnDateKey } from "./adapters";
+import { adaptHistoryEvents, calendarProvenance, calendarProvenanceLabel, cellPoints, cellSpanFlags, dayPoints, eventDateKey, eventSortStamp, filterByTag, historyOnDateKey, sortTimelineEvents, spanCoversDateKey, spanProgressOnDateKey, tagHeat, timelineDateLabel, yearOnDateKey } from "./adapters";
 import { ALMANAC_DEFAULT, ALMANAC_MIN, DETAIL_MIN, fitAlmanacWidth, parseAlmanacWidth } from "./almanacSplit";
 import { MONTH_SHORT_LABELS, WEEKDAY_LABELS, almanacDayIndex, almanacPageLabel, dateKeyFromParts, eventsOnDate, historyMonthGrid, historyYearMonths, inferMonthDay, monthGrid, monthInPair, monthRange, pairMonths, pairOriginForDay, shanghaiCivilFromIso, shiftAlmanacPage, shiftDateKey } from "./helpers";
 import { parseTrendsSection } from "../hot/trendsSection";
 import type { HistoryEvent } from "./types";
+import yearCampusSeeds from "./yearCampusSeeds.json";
 import yearSeeds from "./yearSeeds.json";
 import yearTalentSeeds from "./yearTalentSeeds.json";
 import yearWindowSeeds from "./yearWindowSeeds.json";
 import yearProgramSeeds from "./yearProgramSeeds.json";
 import yearLocalSeeds from "./yearLocalSeeds.json";
 import yearSocialSeeds from "./yearSocialSeeds.json";
-import { cellMarks, habitsOnDateKey, yearHabits } from "./yearHabits";
-import { explainTag, TAG_GLOSSARY, YEAR_GLOSSARY_TAGS } from "./tagGlossary";
-import { acceptSpan, classifyYearCategory, classifyYearTags, growLaneForFeed, growLaneForFolder, growPlacement, growYearEvents, htmlToText, keepGrowArticle, needsDeepRead, parseBodyWindow, pickGrowQueries, spanDays, YEAR_GROUPS, yearCluster, type GrowSeed } from "./yearGrow";
+import { nationalHolidays } from "./nationalHolidays";
+import { cellMarks, habitsOnDateKey, isListedHabit, yearHabits } from "./yearHabits";
+import { explainTag, HISTORY_GLOSSARY_TAGS, TAG_GLOSSARY, YEAR_GLOSSARY_TAGS } from "./tagGlossary";
+import { filterHistoryByTag, HISTORY_GROUPS } from "./historyGroups";
+import { acceptSpan, classifyYearCategory, classifyYearTags, growEventId, growLaneForFeed, growLaneForFolder, growPlacement, growYearEvents, htmlToText, keepGrowArticle, needsDeepRead, parseBodyWindow, pickGrowQueries, spanDays, YEAR_GROUPS, yearCluster, type GrowSeed } from "./yearGrow";
 
 const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 const history = adaptHistoryEvents(historyEvents as HistoryEvent[]);
@@ -45,6 +48,15 @@ function seed(partial: Partial<GrowSeed["article"]> & { title: string }, lane = 
 }
 
 describe("academic calendar views", () => {
+  it("renders only the reviewed historical image batch", () => {
+    const voyager = history.find((event) => event.title === "Voyager 2 首次飞掠天王星");
+    const ligo = history.find((event) => event.title === "LIGO 宣布首次直接探测到引力波");
+    const openAlex = history.find((event) => event.title === "OpenAlex 正式上线");
+    expect(voyager?.payload.media).toMatchObject({ credit: "NASA/JPL", reuseStatus: "cleared", reviewedAt: "2026-09-27" });
+    expect(ligo?.payload.media).toMatchObject({ credit: "Courtesy Caltech/MIT/LIGO Laboratory", fit: "contain", reuseStatus: "cleared" });
+    expect(openAlex?.payload.media).toBeUndefined();
+  });
+
   it("grows the academic year from grant and meeting feeds, not a handwritten skeleton", () => {
     expect(growLaneForFolder("中国大陆·基金申报")).toBe("科研申报");
     expect(growLaneForFolder("国际基金·资助机会")).toBe("国际基金");
@@ -87,6 +99,7 @@ describe("academic calendar views", () => {
     expect(classifyYearTags(seed({ title: "CFPs on Artificial Intelligence", feedTitle: "CFPs on Artificial Intelligence : WikiCFP" }).article, "会议征稿")).toEqual(["学术会议", "国际会议", "人工智能"]);
     expect(classifyYearTags(seed({ title: "青年科学基金项目（A类）集中接收申报", feedTitle: "国家自然科学基金委员会" }).article, "科研申报")).toEqual(["人才计划", "杰青"]);
     expect(classifyYearTags(seed({ title: "优秀青年科学基金项目（海外）项目指南", feedTitle: "国家自然科学基金委员会" }).article, "科研申报")).toEqual(["人才计划", "海外优青"]);
+    expect(classifyYearTags(seed({ title: "青年科学基金项目（B类）集中接收申报", feedTitle: "国家自然科学基金委员会" }).article, "科研申报")).toEqual(["人才计划", "优青"]);
     expect(classifyYearTags(seed({ title: "2016年度长江学者奖励计划人选推荐" }).article, "科研申报")).toEqual(["人才计划", "长江学者"]);
     expect(classifyYearTags(seed({ title: "2018年国家千人计划青年项目申报" }).article, "科研申报")).toEqual(["人才计划", "千人计划"]);
     expect(classifyYearTags(seed({ title: "NSF Upcoming Due Dates", feedTitle: "NSF Upcoming Due Dates" }).article, "国际基金")).toEqual(["国际科研机会", "国际基金"]);
@@ -95,19 +108,24 @@ describe("academic calendar views", () => {
     expect(classifyYearTags(seed({ title: "中国科学院特别研究助理资助项目申报" }).article, "科研申报")).toEqual(["科研岗位", "科研助理"]);
     expect(classifyYearTags(seed({ title: "关于发布国家重点研发计划“工业软件”重点专项项目申报指南的通知" }).article, "科研申报")).toEqual(["国家科技项目", "国家重点研发"]);
     expect(classifyYearTags(seed({ title: "国家艺术基金（一般项目）2026年度资助项目申报" }).article, "科研申报")[0]).toBe("人文社科基金");
+    expect(classifyYearTags(seed({ title: "国家社会科学基金艺术学重大项目投标" }).article, "科研申报")).toEqual(["人文社科基金", "艺术基金", "艺术"]);
+    expect(classifyYearTags(seed({ title: "国家社科基金教育学重大项目投标" }).article, "科研申报")).toEqual(["人文社科基金", "教育科学", "教育"]);
+    expect(classifyYearTags(seed({ title: "国家艺术基金青年艺术创作人才资助项目申报" }).article, "科研申报")).toEqual(["人文社科基金", "艺术基金", "人才计划", "青年人才", "艺术"]);
     expect(classifyYearTags(seed({ title: "国家语委科研规划2025年选题指南项目申报" }).article, "科研申报")[0]).toBe("人文社科基金");
     expect(classifyYearTags(seed({ title: "中国科协青年科技人才培育工程博士生专项计划" }).article, "科研申报")[0]).toBe("人才计划");
+    expect(classifyYearTags(seed({ title: "中国科协青年人才托举工程博士生专项计划推荐" }).article, "科研申报")).toEqual(["人才计划", "青年人才"]);
     expect(classifyYearTags(seed({ title: "2026年度国家出版基金项目申报" }).article, "科研申报")[0]).toBe("人文社科基金");
     expect(classifyYearTags(seed({ title: "2025年度上海市自然科学基金项目申报" }).article, "科研申报")).toEqual(["地方科研项目", "省自然科学基金"]);
     expect(classifyYearTags(seed({ title: "2025年北京市社会科学基金项目申报公告" }).article, "科研申报")).toEqual(["人文社科基金", "省社科"]);
     expect(classifyYearTags(seed({ title: "面上项目列入2026年集中接收", feedTitle: "国家自然科学基金委员会" }).article, "科研申报")).toEqual(["自然科学基金", "面上项目"]);
     expect(classifyYearTags(seed({ title: "中国化学会第35届学术年会" }, "会议征稿").article, "会议征稿")).toEqual(["学术会议", "学会年会", "化学"]);
-    expect(classifyYearTags(seed({ title: "2026年国家公派研究生（含联合培养博士生）网上申报" }).article, "科研申报")).toEqual(["国际科研机会", "国际交换"]);
+    expect(classifyYearTags(seed({ title: "2026年国家建设高水平大学公派研究生项目申报" }).article, "科研申报")).toEqual(["国际科研机会", "国际交换", "人才计划"]);
     expect(classifyYearTags(seed({ title: "2026年国家公派高级研究学者、访问学者、博士后项目申报" }).article, "科研申报")).toEqual(["国际科研机会", "访问学者"]);
     expect(classifyYearTags(seed({ title: "2026年度湖南省自然科学基金项目申报" }).article, "科研申报")).toEqual(["地方科研项目", "省自然科学基金"]);
     expect(classifyYearTags(seed({ title: "宁波东方理工大学2026甬江论坛报名截止" }).article, "科研申报")).toEqual(["科研岗位", "教职"]);
     expect(classifyYearTags(seed({ title: "北京大学新医工研究生暑期学校" }, "会议征稿").article, "会议征稿")).toEqual(["学术会议", "暑期学校"]);
     expect(classifyYearTags(seed({ title: "中国博士后科学基金第79批面上资助申报" }).article, "科研申报")).toEqual(["博士后项目", "博士后基金"]);
+    expect(classifyYearTags(seed({ title: "2026年度博士后创新人才支持计划（国家资助博士后研究人员计划A档）申报" }).article, "科研申报")).toEqual(["博士后项目", "博新计划", "人才计划", "青年人才"]);
     expect(classifyYearTags(seed({ title: "北京大学王选所青年论坛报名截止" }).article, "科研申报")).toEqual(["科研岗位", "教职"]);
     expect(yearCluster("杰青")).toBe("人才计划");
     expect(yearCluster("博士后")).toBe("博士后项目");
@@ -117,10 +135,18 @@ describe("academic calendar views", () => {
     expect(yearCluster("语委")).toBe("人文社科基金");
     expect(yearCluster("国自然")).toBe("自然科学基金");
     expect(yearCluster("国社科")).toBe("人文社科基金");
+    expect(classifyYearTags(seed({ title: "关于2026年秋季学期开学的通知" }).article, "科研申报")).toEqual(["培养节点", "开学"]);
+    expect(classifyYearTags(seed({ title: "2026年寒假放假安排" }).article, "科研申报")).toEqual(["培养节点", "放假"]);
+    expect(classifyYearTags(seed({ title: "博士学位论文开题工作安排" }).article, "科研申报")).toEqual(["培养节点", "开题"]);
+    expect(classifyYearTags(seed({ title: "2026年博士生中期考核通知" }).article, "科研申报")).toEqual(["培养节点", "中期答辩"]);
+    expect(classifyYearTags(seed({ title: "硕士学位论文答辩安排" }).article, "科研申报")).toEqual(["培养节点", "答辩"]);
+    expect(classifyYearTags(seed({ title: "国家社科基金重大项目举行开题论证会" }).article, "会议征稿")).not.toContain("培养节点");
     expect(YEAR_GROUPS.map((item) => item.group)).toEqual([
-      "学术会议", "自然科学基金", "人文社科基金", "国家科技项目", "地方科研项目",
+      "节假日", "培养节点", "学术会议", "自然科学基金", "人文社科基金", "国家科技项目", "地方科研项目",
       "人才计划", "博士后项目", "国际科研机会", "学术出版", "科研岗位",
     ]);
+    expect(YEAR_GROUPS.find((item) => item.group === "节假日")?.members).toEqual(["法定放假", "调休上班", "传统节日"]);
+    expect(YEAR_GROUPS.find((item) => item.group === "培养节点")?.members).toEqual(expect.arrayContaining(["开学", "放假", "开题", "中期答辩", "预答辩", "答辩"]));
     expect(YEAR_GROUPS.find((item) => item.group === "人才计划")?.members).toEqual(expect.arrayContaining(["杰青", "地方人才"]));
     expect(YEAR_GROUPS.find((item) => item.group === "自然科学基金")?.members).toEqual(expect.arrayContaining(["国自然", "面上项目", "联合基金"]));
     expect(YEAR_GROUPS.find((item) => item.group === "人文社科基金")?.members).toEqual(expect.arrayContaining(["国社科", "省社科", "语委"]));
@@ -132,9 +158,11 @@ describe("academic calendar views", () => {
     expect(inferMonthDay("1月中下旬常见", 2026, 1)).toBe(20);
     expect(shanghaiCivilFromIso("2026-09-16")).toMatchObject({ year: 2026, month: 9, day: 16 });
     const board = read("calendar/CalendarBoard.tsx");
+    expect(board).toContain("nationalHolidays");
     expect(board).toContain("growYearEvents");
     expect(board).toContain("loadGrowSeeds");
     expect(board).toContain("yearSeeds");
+    expect(board).toContain("yearOfficialSeeds");
     expect(board).toContain("yearTalentSeeds");
     expect(board).toContain("yearLocalSeeds");
     expect(board).toContain("yearSocialSeeds");
@@ -186,6 +214,105 @@ describe("academic calendar views", () => {
     expect(packed.every((event) => event.start.year <= 2100 && (event.end == null || event.end.year <= 2100))).toBe(true);
     expect(board).toContain("calendar-dot");
     expect(board).toContain("habitsOnDateKey");
+  });
+  it("lays the State Council 2026 holidays and shared traditional festivals on the year", () => {
+    const holidays = nationalHolidays(2026);
+    const notice = "https://www.gov.cn/zhengce/zhengceku/202511/content_7047091.htm";
+    expect(nationalHolidays(2027)).toEqual([]);
+    expect(holidays.every((event) => event.tags.includes("节假日") && event.source === "year")).toBe(true);
+    expect(holidays.find((event) => event.title === "春节放假")).toMatchObject({
+      kind: "span",
+      start: { year: 2026, month: 2, day: 15 },
+      end: { year: 2026, month: 2, day: 23 },
+      tags: ["法定放假", "节假日"],
+      payload: { sourceUrl: notice },
+    });
+    expect(yearOnDateKey(holidays, "02-16").map((event) => event.title).sort()).toEqual(["春节放假", "除夕"]);
+    expect(holidays.find((event) => event.title === "春节")).toMatchObject({ start: { month: 2, day: 17 }, tags: ["传统节日", "节假日"] });
+    expect(holidays.find((event) => event.title === "元宵节")).toMatchObject({ start: { month: 3, day: 3 } });
+    expect(holidays.find((event) => event.title === "重阳节")).toMatchObject({ start: { month: 10, day: 18 } });
+    expect(holidays.find((event) => event.title === "冬至")).toMatchObject({ start: { month: 12, day: 22 } });
+    expect(holidays.find((event) => event.title === "清明")).toMatchObject({ start: { month: 4, day: 5 } });
+    expect(holidays.map((event) => event.title)).not.toContain("小年");
+    expect(holidays.some((event) => /开学|开题|答辩/.test(event.title))).toBe(false);
+    const workdays = holidays.filter((event) => event.tags.includes("调休上班")).map((event) => `${event.start.month}-${event.start.day}`);
+    expect(workdays).toEqual(["1-4", "2-14", "2-28", "5-9", "9-20", "10-10"]);
+    const springStart = habitsOnDateKey(holidays, "02-15").find((habit) => habit.tag === "法定放假");
+    expect(springStart).toMatchObject({ title: "春节放假", starts: true });
+    const lantern = habitsOnDateKey(holidays, "03-03").find((habit) => habit.tag === "传统节日");
+    expect(lantern).toMatchObject({ title: "元宵节", tone: null });
+  });
+  it("carries search provenance forward without changing legacy RSS seeds", () => {
+    const searched: GrowSeed = {
+      ...seed({
+        id: 970001,
+        title: "[2026年3月1日-2026年3月20日] 国家自然科学基金年度项目集中接收",
+        feedTitle: "国家自然科学基金委员会",
+        url: "https://www.nsfc.gov.cn/p1/3381/2824/99667.html",
+        publishedAt: "2026-01-14",
+      }),
+      provenance: {
+        origin: "web_search",
+        sourceTier: "official",
+        verification: "verified",
+        reviewedAt: "2026-01-15",
+      },
+    };
+    const [event] = growYearEvents([searched]);
+    expect(event.payload.provenance).toEqual(searched.provenance);
+    expect(calendarProvenance(event)).toEqual(searched.provenance);
+    expect(calendarProvenanceLabel(calendarProvenance(event))).toBe("外网检索 · 官网原文 · 已核验");
+
+    const [legacy] = growYearEvents([seed({
+      id: 970002,
+      title: "[2026年3月1日-2026年3月20日] 国家自然科学基金年度项目集中接收（RSS）",
+      feedTitle: "国家自然科学基金委员会",
+      url: "https://www.nsfc.gov.cn/p1/3381/2824/99667.html",
+      publishedAt: "2026-01-14",
+    })]);
+    expect(calendarProvenance(legacy)).toMatchObject({ origin: "rss", sourceTier: "official", verification: "unverified" });
+    expect(calendarProvenance(nationalHolidays(2026)[0])).toMatchObject({ origin: "curated", sourceTier: "official", verification: "verified" });
+  });
+  it("uses source-stable IDs when static seed collections reuse a local article id", () => {
+    const program = (yearProgramSeeds as GrowSeed[])[0];
+    const campus = (yearCampusSeeds as GrowSeed[])[0];
+    expect(program.article.id).toBe(campus.article.id);
+    const events = growYearEvents([program, campus]);
+    expect(events).toHaveLength(2);
+    expect(new Set(events.map((event) => event.id)).size).toBe(2);
+    expect(events.every((event) => !event.id.includes(String(program.article.id)))).toBe(true);
+    expect(growEventId(program)).toBe(growEventId({
+      ...program,
+      article: { ...program.article, url: `${program.article.url}?utm_source=calendar` },
+    }));
+    const allStaticEvents = growYearEvents([
+      ...(yearProgramSeeds as GrowSeed[]),
+      ...(yearWindowSeeds as GrowSeed[]),
+      ...(yearTalentSeeds as GrowSeed[]),
+      ...(yearLocalSeeds as GrowSeed[]),
+      ...(yearSocialSeeds as GrowSeed[]),
+      ...(yearCampusSeeds as GrowSeed[]),
+      ...(yearSeeds as GrowSeed[]),
+    ]);
+    expect(new Set(allStaticEvents.map((event) => event.id)).size).toBe(allStaticEvents.length);
+  });
+  it("files sourced campus notices under 培养节点 without turning a project seminar into one", () => {
+    const grown = growYearEvents(yearCampusSeeds as GrowSeed[]);
+    expect(grown).toHaveLength(yearCampusSeeds.length);
+    const byTitle = (title: string) => grown.find((event) => event.title.includes(title));
+    expect(byTitle("9月7日秋季学期开学上课")).toMatchObject({ tags: ["培养节点", "开学"], start: { year: 2026, month: 9, day: 7 }, kind: "point" });
+    expect(byTitle("2月22日春季学期开学上课")).toMatchObject({ tags: ["培养节点", "开学"], start: { year: 2027, month: 2, day: 22 } });
+    expect(byTitle("学生寒假")).toMatchObject({ tags: ["培养节点", "放假"], kind: "span", start: { year: 2027, month: 1, day: 11 }, end: { year: 2027, month: 2, day: 21 } });
+    expect(byTitle("提交开题报告")).toMatchObject({ tags: ["培养节点", "开题"], kind: "span", start: { year: 2026, month: 3, day: 2 }, end: { year: 2026, month: 8, day: 31 } });
+    expect(byTitle("中期考核：2026年6月29日")).toMatchObject({ tags: ["培养节点", "中期答辩"], kind: "span", start: { month: 6, day: 29 }, end: { month: 7, day: 3 } });
+    expect(byTitle("预答辩的通知")).toMatchObject({ tags: ["培养节点", "预答辩"], start: { year: 2026, month: 8, day: 28 } });
+    expect(byTitle("学位论文答辩：2026年5月30日")).toMatchObject({ tags: ["培养节点", "答辩"], start: { year: 2026, month: 5, day: 30 } });
+    const members = ["开学", "放假", "开题", "中期答辩", "预答辩", "答辩"];
+    expect(members.every((member) => grown.some((event) => event.tags.includes(member)))).toBe(true);
+    const listed = yearHabits(grown);
+    expect(listed.length).toBeGreaterThan(1);
+    expect(listed.every((habit) => isListedHabit(habit) && habit.evidence.every((event) => event.payload.sourceUrl))).toBe(true);
+    expect(grown.every((event) => event.payload.sourceUrl && !event.title.includes("开题论证"))).toBe(true);
   });
   it("puts day-precision history on the matching civil day only", () => {
     expect(history.length).toBeGreaterThan(500);
@@ -327,6 +454,8 @@ describe("academic calendar views", () => {
     expect(april).toHaveLength(1);
     expect(april[0].habit).toBe(false);
     expect(april[0].evidence).toHaveLength(1);
+    expect(yearHabits(grown).some((habit) => habit.dateKey === "04-01")).toBe(false);
+    expect(yearHabits(grown).every((habit) => habit.habit)).toBe(true);
     const start = habitsOnDateKey(grown, "11-05");
     const end = habitsOnDateKey(grown, "11-06");
     expect(start[0].starts).toBe(true);
@@ -397,11 +526,13 @@ describe("academic calendar views", () => {
     expect(packed.some((event) => event.tags[0] === "人才计划" && event.tags.includes("地方人才"))).toBe(true);
     expect(packed.some((event) => event.tags.includes("面上项目"))).toBe(true);
     expect(packed.some((event) => event.tags[0] === "学术出版" && (event.tags.includes("优秀成果奖") || event.tags.includes("专著出版")))).toBe(true);
-    expect(YEAR_GROUPS.every((item) => yearHabits(filterByTag(packed, item.group)).length > 0)).toBe(true);
+    const unlisted = YEAR_GROUPS.filter((item) => item.group !== "节假日" && yearHabits(filterByTag(packed, item.group)).length === 0).map((item) => item.group);
+    expect(unlisted).toEqual(["培养节点", "学术出版"]);
     const board = read("calendar/CalendarBoard.tsx");
     expect(board).toContain("惯例");
-    expect(board).toContain("HabitCard");
-    expect(board).toContain("yearHabits");
+    expect(board).not.toContain("零星依据");
+    expect(board).toContain("PlannerRibbon");
+    expect(board).toContain("cellMarks");
     expect(board).not.toContain("STRIP_WINDOW");
     expect(board).not.toContain("monthRange(");
   });
@@ -523,10 +654,15 @@ describe("academic calendar views", () => {
     expect(board).toContain("calendar-dot");
     expect(board).toContain("cellMarks");
     expect(board).toContain("yearMode");
-    // One vocabulary only: dots. The flag pennants are gone for good.
+    // History retains compact dots; the academic planner promotes cleaned
+    // tag-level ribbons instead of exposing raw source titles in day cells.
     expect(board).not.toContain("calendar-flag");
     expect(board).not.toContain("Flag");
     expect(read("calendar/calendar.css")).not.toContain(".calendar-flag");
+    expect(board).toContain("PlannerRibbon");
+    expect(board).toContain("calendar-ribbon");
+    expect(read("calendar/calendar.css")).toContain(".calendar-ribbon");
+    expect(board).toContain("{almanacPane}");
     expect(read("calendar/calendar.css")).toContain(".calendar-dot.is-start");
     expect(read("calendar/calendar.css")).toContain(".calendar-dot.is-end");
     expect(read("calendar/calendar.css")).toContain(".calendar-dot.is-span");
@@ -542,8 +678,9 @@ describe("academic calendar views", () => {
     expect(board).toContain("--span-t");
     expect(board).toContain("through");
     // Blue overview for 全部; the green–yellow–red ramp after a tag.
-    expect(board).toContain("scale={view === \"year\" && tag != null}");
-    expect(board).toContain("scale={tag != null}");
+    // The same planner can now be switched to its compact timeline view.
+    expect(board).toContain("calendar-year-months");
+    expect(board).toContain('scale={view === "year" && tag != null}');
     expect(board).toContain("scale ? spanTone(kind, tone) : null");
     expect(board).toContain("eventFocusOnDate");
     expect(board).toContain("is-focusing");
@@ -552,6 +689,13 @@ describe("academic calendar views", () => {
     expect(board).toContain("clearFocus");
     expect(board).not.toContain("onHoverDay");
     expect(board).not.toContain("setHoverKey");
+    expect(read("calendar/calendar.css")).toContain("flex: 1 1 0");
+    expect(read("calendar/calendar.css")).toContain("overflow-wrap: break-word");
+    expect(read("calendar/calendar.css")).toContain("min-width: var(--cal-almanac-min, 240px)");
+    expect(read("calendar/calendar.css")).toContain(".calendar-workspace.is-history .calendar-detail { padding-left: 18px; }");
+    expect(read("calendar/calendar.css")).toContain("nth-last-child(-n + 14)");
+    expect(board).toContain("{month} 月 {day} 日");
+    expect(board).toContain("calendar-timeline-wrap");
     expect(read("calendar/calendar.css")).toContain(".calendar-almanac.is-focusing");
     expect(read("calendar/calendar.css")).toContain(".calendar-clear-focus");
     expect(almanacDayIndex(1, 1)).toBe(1);
@@ -582,7 +726,7 @@ describe("academic calendar views", () => {
     expect(busiestHistory).toBeLessThanOrEqual(8);
     expect(board).toContain("historyYearMonths");
     expect(board).toContain("ResizeHandle");
-    expect(board).toContain("selectedHabits");
+    expect(board).toContain("当前标签卡片");
     expect(board).not.toContain("STRIP_WINDOW");
     expect(board).not.toContain("onStripScroll");
     expect(board).not.toContain("pairMonths");
@@ -601,10 +745,15 @@ describe("academic calendar views", () => {
     expect(packedTags.filter((tag) => !TAG_GLOSSARY[tag])).toEqual([]);
     const domains = [...new Set((historyEvents as HistoryEvent[]).map((event) => event.domain))];
     expect(domains.filter((tag) => !TAG_GLOSSARY[tag])).toEqual([]);
+    expect(HISTORY_GLOSSARY_TAGS.filter((tag) => !TAG_GLOSSARY[tag] || TAG_GLOSSARY[tag].length < 12)).toEqual([]);
+    expect(new Set(HISTORY_GROUPS.flatMap((item) => item.members))).toEqual(new Set(domains));
+    expect(filterHistoryByTag(history, "研究体系").every((event) => ["研究规范史", "研究诚信史", "研究方法史", "定性研究方法史", "开放科学史", "数据治理史", "学术制度", "科学机构史", "统计学史"].includes(event.tags[0]!))).toBe(true);
     expect(explainTag("面上项目").kind).toBe("member");
     expect(explainTag("面上项目").group).toBe("自然科学基金");
     expect(explainTag("自然科学基金").kind).toBe("group");
     expect(explainTag("统计学史", "history").kind).toBe("history");
+    expect(explainTag("统计学史", "history").group).toBe("研究体系");
+    expect(explainTag("研究体系", "history").kind).toBe("group");
     expect(explainTag("面上项目").definition).toContain("自由申请");
   });
   it("keeps labels inside the hot workspace and gives calendar the third slot", () => {
@@ -679,7 +828,7 @@ describe("academic calendar views", () => {
     expect(board).toContain("月历");
     expect(board).toContain("时间轴");
     expect(board).toContain("sortTimelineEvents");
-    expect(board).toContain("HabitTimeline");
-    expect(board).toContain("yearHabits");
+    expect(board).not.toContain("HabitTimeline");
+    expect(board).toContain("habitsOnDateKey");
   });
 });
